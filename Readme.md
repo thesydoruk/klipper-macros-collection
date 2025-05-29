@@ -1,128 +1,97 @@
 # 🧩 Klipper Macro Suite
 
-This repository contains a set of powerful and modular macros for [Klipper](https://www.klipper3d.org/) firmware. They are designed to improve print start/end procedures, motion reliability, probing accuracy, and general control safety.
-
-Each macro is fully documented and structured to be hardware-agnostic, extensible, and compatible with Kalico/Eddy/Fluidd/Mainsail.
-
----
-
-## 📂 Macro Files Overview
-
-### `print_start.cfg`
-Smart and adaptive `PRINT_START` macro:
-- Supports Kalico/Eddy/NG probes and dynamic toolhead types
-- Automatically purges filament based on tool type and nozzle location
-- Synchronizes heating between bed/nozzle for efficiency
-- Logs each step with RESPOND messages (`TYPE=echo`)
-- Designed to replace slicer G-code completely
-
-### `print_end.cfg`
-Comprehensive `PRINT_END` macro:
-- Retracts filament
-- Disables heaters/fans safely
-- Parks the toolhead and lifts Z
-- Fully configurable and tool-agnostic
-- Complements `PRINT_START`
-
-### `pause_after_d.cfg`
-Macro that watches for G1 moves containing a `D` parameter and pauses the print after such moves. Useful for:
-- Manual insertions
-- Print inspection
-- Custom pause triggers
-
-### `print_settings.cfg`
-Centralized macro configuration:
-- Defines shared variables (e.g. purge lengths, retract amounts, wipe settings)
-- Used across macros via `SET_GCODE_VARIABLE`
-- Enables macros to behave consistently regardless of slicer
-
-> ⚠️ **Note**: This is *not* for slicer-generated settings — it’s for internal macro parameterization.
-
-### `pid.cfg`
-Macros for PID autotuning:
-- Simplifies tuning heater PID values
-- Provides clear user feedback
-- Logs and restores settings
-
-### `lock_accel.cfg`
-Implements an acceleration lock mechanism:
-- Prevents macros and G-code from modifying acceleration mid-print
-- Includes:
-  - `LOCK_ACCEL`
-  - `UNLOCK_ACCEL`
-  - Patched `M204` and `SET_VELOCITY_LIMIT` (via `rename_existing`)
-- Useful for consistency and testing
-
-### `test_speed.cfg`
-Macro to verify toolhead motion integrity:
-- Moves through large/small patterns at high speed/acceleration
-- Checks MCU-reported positions before and after
-- Helps detect skipped steps
-- Configurable bounds, pattern sizes, iteration count
-
-### `z_tilt_adjust.cfg`
-Safe execution wrapper around `Z_TILT_ADJUST`:
-- Automatically raises/lifts before and after probing
-- Can be chained with leveling or mesh generation macros
-- Includes error handling
-
-### `quad_gantry_level.cfg`
-Reliable wrapper for `QUAD_GANTRY_LEVEL`:
-- Includes pre/post Z-hop
-- Ensures clean probing without nozzle dragging
-- Works well in combination with `z_tilt_adjust.cfg`
+A clean, modular, and hardware-agnostic collection of macros for [Klipper](https://www.klipper3d.org/) firmware.
+Each macro is designed for performance, print safety, configurability, and ease of maintenance.
 
 ---
 
-## ✅ Usage
+## 📦 Included Macros
 
-1. Clone or copy this repo to your Klipper config folder.
-2. In your `printer.cfg`, include the needed files:
-   ```ini
-   [include print_settings.cfg]
-   [include print_start.cfg]
-   [include print_end.cfg]
-   [include test_speed.cfg]
-   ...
-   ```
-3. Adapt your slicer start/end G-code:
-   ```gcode
-   START_PRINT
-   ...
-   END_PRINT
-   ```
+### 🛫 `PRINT_START`
+Smart print initialization with automatic heating, homing, optional Z-tilt correction, mesh leveling, and purge line generation.
+
+### 🛬 `PRINT_END`
+Safely finalizes prints: retracts filament, lifts Z, parks the toolhead, disables heaters, and resets modifiers.
+
+### ⏸️ `PAUSE_AFTER_D`
+Delays a print pause until an additional `D` mm of filament is extruded — useful for color swaps or user intervention.
+
+### 🔥 `PID_B`, `PID_E`
+Macros for autotuning the heated bed and hotend. Safe input ranges and defaults are enforced via global config.
+
+### 🚫 `LOCK_ACCEL`, `UNLOCK_ACCEL`, `M204`, `SET_VELOCITY_LIMIT`
+Accurate locking of acceleration values mid-print. Prevents G-code from altering acceleration unintentionally.
+
+### 🧪 `TEST_SPEED`
+Run high-speed movement tests across defined toolhead patterns to detect motion inconsistencies or skipped steps.
+
+### ⚖️ `Z_TILT_ADJUST`
+Two-phase safe tilt alignment with configurable lift height. Automatically skips high-pass if tilt is already applied.
+
+### 🪜 `QUAD_GANTRY_LEVEL`
+Enhanced QGL macro that lifts the gantry before leveling and restores motion state after.
+
+### 🧠 `AUTOTUNE_SGTHRS_PHASE`
+Auto-detects ideal StallGuard threshold by scanning SG_RESULT across multiple load profiles. Provides recommended config line.
+
+### ⚙️ `_macro_globals`
+Centralized macro config block. Defines all configurable variables for purge, lift, limits, tolerances, and more.
+**This macro is required and must be included.**
 
 ---
 
-## 💬 RESPOND Message Format
+## 🛠️ Setup Instructions
 
-All macros use Klipper's `RESPOND` command with proper message types:
-- `TYPE=echo` — for standard logs
-- `TYPE=error` — for user-correctable issues
-- `TYPE=command` — for suggested manual follow-ups
+1. Copy all `.cfg` files to your Klipper config folder (typically on your Pi or MCU host).
+2. Include the required macros in your `printer.cfg`:
 
-This ensures full compatibility with:
-- **Moonraker**
-- **Fluidd**
-- **Mainsail**
+```ini
+[include globals.cfg]              # REQUIRED
+[include print_start.cfg]
+[include print_end.cfg]
+[include pause_after_d.cfg]
+[include pid.cfg]
+[include lock_accel.cfg]
+[include test_speed.cfg]
+[include z_tilt_adjust.cfg]
+[include quad_gantry_level.cfg]
+[include autotune_sgthrs.cfg]
+```
+
+3. Configure your slicer (example for **PrusaSlicer**):
+
+### Start G-code:
+```gcode
+M190 S[first_layer_bed_temperature]
+M104 S[first_layer_temperature]
+START_PRINT BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature] \
+  MESH_MIN=[first_layer_print_min[0]],[first_layer_print_min[1]] \
+  MESH_MAX=[first_layer_print_max[0]],[first_layer_print_max[1]]
+```
+
+### End G-code:
+```gcode
+END_PRINT
+```
 
 ---
 
-## 🧠 Philosophy
+## 💡 Design Principles
 
-- **Macro logic lives in macros** — not in slicers
-- **No hardcoded values** — use variables from `print_settings.cfg`
-- **Designed for reliability** — recoverable errors, probing safety, motion checks
-- **Hardware-agnostic** — works on bedslingers, CoreXY, Vorons, and more
+- 📁 **Separation of Logic** — All logic lives in macros, not in slicers.
+- 🧰 **Configurability** — All parameters are sourced from `_macro_globals`.
+- 🧱 **Recoverable & Safe** — Motion states are saved/restored. Meshes are cleared when needed.
+- 🖥️ **Clear Feedback** — Uses `RESPOND` messages to provide user-readable logging.
+- 🔀 **Hardware-Agnostic** — Works across Vorons, bedslingers, CoreXY, and other setups.
 
 ---
 
 ## 📄 License
 
-MIT License — free to use, modify, adapt.
+MIT License. Free to use, share, and adapt.
 
 ---
 
-## 🙌 Credits
+## 👤 Credits
 
-Originally authored by [@thesidoruk](https://github.com/thesidoruk), refined through testing across multiple printers.
+Inspired by [@thesidoruk](https://github.com/thesidoruk) and heavily restructured for modularity and configurability.
