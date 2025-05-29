@@ -91,7 +91,3 @@ END_PRINT
 MIT License. Free to use, share, and adapt.
 
 ---
-
-## 👤 Credits
-
-Inspired by [@thesidoruk](https://github.com/thesidoruk) and heavily restructured for modularity and configurability.
