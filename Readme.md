@@ -62,8 +62,6 @@ Centralized macro config block. Defines all configurable variables for purge, li
 
 ### Start G-code:
 ```gcode
-M190 S[first_layer_bed_temperature]
-M104 S[first_layer_temperature]
 START_PRINT BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature] \
   MESH_MIN=[first_layer_print_min[0]],[first_layer_print_min[1]] \
   MESH_MAX=[first_layer_print_max[0]],[first_layer_print_max[1]]
@@ -90,4 +88,3 @@ END_PRINT
 
 MIT License. Free to use, share, and adapt.
 
----
