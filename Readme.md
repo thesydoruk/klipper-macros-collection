@@ -6,54 +6,119 @@ A modular set of well-documented Klipper macros designed to improve reliability,
 
 ## 📁 Macros Overview
 
+Below is an overview of included files and the G-code commands they provide.
+
 ### `globals.cfg`
 Contains all configurable variables used across macros — heater targets, purge behavior, acceleration limits, autotune thresholds, etc. This file **must be included** in your Klipper config.
+It also includes the core macros listed below:
 
-### `print_start.cfg`
-Performs full startup: heating, homing, optional gantry leveling, mesh calibration, and purge lines. Supports smart preheat staging and adaptive purge parameters.
+### Included by `globals.cfg`
+These macros are included automatically when you load `globals.cfg`:
 
-### `print_end.cfg`
-Cleans up after printing by retracting, lifting the nozzle, parking, and disabling heaters. Mesh and motion parameters are reset.
+- **`print_start.cfg`** — Defines `PRINT_START` for full pre-print setup.
+- **`print_end.cfg`** — Provides `PRINT_END` to safely finish a print.
+- **`pause_after_d.cfg`** — Adds `PAUSE_AFTER_D`, which pauses after specified extrusion distance.
+- **`pid.cfg`** — Adds `PID_B` and `PID_E` to autotune bed and hotend.
+- **`lock_accel.cfg`** — Implements `LOCK_ACCEL`, `UNLOCK_ACCEL`, and overrides `M204` and `SET_VELOCITY_LIMIT` to block changes.
 
-### `pause_after_d.cfg`
-Pauses the printer after a configurable amount of filament is consumed. Useful for controlled swaps or interventions.
+### Optional Macros (include manually if needed) (include manually if needed)
+These macros are stored in the `optional/` folder and must be explicitly included:
 
-### `pid.cfg`
-Macros `PID_B` and `PID_E` for autotuning bed and hotend heaters with optional temperature validation. Uses values from `globals.cfg`.
+- **`z_tilt_adjust.cfg`** — Provides the `Z_TILT_ADJUST` command for safe 2-pass alignment.
+- **`quad_gantry_level.cfg`** — Defines `QUAD_GANTRY_LEVEL` macro that handles lifting, retrying, and state restore.
+- **`test_speed.cfg`** — Adds `TEST_SPEED`, which runs high-speed motion diagnostics with delta detection.
+- **`autotune_sgthrs.cfg`** — Adds `AUTOTUNE_SGTHRS_PHASE`, which finds optimal sensorless SGTHRS value.
 
-### `lock_accel.cfg`
-Implements a mechanism to lock acceleration settings during print. Prevents G-code from overriding acceleration via `M204` or `SET_VELOCITY_LIMIT`.
+---
 
-### `test_speed.cfg`
-Executes aggressive motion patterns to test axis reliability. Supports configurable speeds, bounds, and pattern scaling. Includes position delta checks to detect skips.
+## 🧪 Command Parameters & Usage Examples
 
-### `quad_gantry_level.cfg`
-Wrapper around QGL with automatic lift and recovery. Supports skipped first pass if already applied.
+### `PRINT_START`
+**Parameters:**
+- `BED` — target bed temperature (°C)
+- `EXTRUDER` — target hotend temperature (°C)
+- `MESH_MIN` — lower-left corner of mesh probe area (e.g. `30,30`)
+- `MESH_MAX` — upper-right corner of mesh probe area (e.g. `200,200`)
 
-### `z_tilt_adjust.cfg`
-Safe Z tilt leveling with conditional high-pass and restoration of printer state.
+**Example:**
+```gcode
+START_PRINT BED=60 EXTRUDER=200 MESH_MIN=30,30 MESH_MAX=200,200
+```
 
-### `autotune_sgthrs.cfg`
-StallGuard SGTHRS autotuning for sensorless homing. Performs motion stress tests and recommends a threshold value with position delta analysis.
+### `PRINT_END`
+**No parameters.** Cleans up after printing.
+```gcode
+END_PRINT
+```
+
+### `PAUSE_AFTER_D`
+**Parameters:**
+- `D` — length of filament in mm after which to pause
+
+**Example:**
+```gcode
+PAUSE_AFTER_D D=15
+```
+
+### `PID_B`, `PID_E`
+**Parameters:**
+- `T` — optional target temp for PID tuning (°C)
+
+**Examples:**
+```gcode
+PID_B T=70      ; tune bed to 70°C
+PID_E           ; tune hotend to default temp
+```
+
+### `LOCK_ACCEL`, `UNLOCK_ACCEL`
+**LOCK_ACCEL Parameters:**
+- `S` or `ACCEL` — acceleration value to enforce
+
+**Examples:**
+```gcode
+LOCK_ACCEL ACCEL=3000
+UNLOCK_ACCEL
+```
+
+### `TEST_SPEED` *(optional)*
+**Parameters:**
+- `SPEED`, `ACCEL`, `ITERATIONS`, `BOUND`, `SMALLPATTERNSIZE`, `MIN_CRUISE_RATIO`
+
+**Example:**
+```gcode
+TEST_SPEED SPEED=300 ACCEL=2500 ITERATIONS=4
+```
+
+### `Z_TILT_ADJUST` *(optional)*
+**No parameters.** Runs 1 or 2 passes of tilt leveling depending on current printer state.
+
+### `QUAD_GANTRY_LEVEL` *(optional)*
+**No parameters.** Wrapper for QGL with extra lift and retry.
+
+### `AUTOTUNE_SGTHRS_PHASE` *(optional)*
+**Parameters:**
+- `STEPPER`, `STEP`, `FEED`, `ACCEL`, `BOUND`, `SCALE_STEPS`, `MIN`, `MAX`
+
+**Example:**
+```gcode
+AUTOTUNE_SGTHRS_PHASE STEPPER=stepper_x ACCEL=3000 FEED=240
+```
 
 ---
 
 ## 🧰 Installation
 
-1. Copy all `.cfg` files to your Klipper config folder
-2. In your `printer.cfg`, include:
+1. Copy all `.cfg` files into your Klipper config directory
+2. In `printer.cfg`, include this line:
 
 ```ini
-[include globals.cfg]  # required
-[include print_start.cfg]
-[include print_end.cfg]
-[include pause_after_d.cfg]
-[include pid.cfg]
-[include lock_accel.cfg]
-[include test_speed.cfg]
-[include z_tilt_adjust.cfg]
-[include quad_gantry_level.cfg]
-[include autotune_sgthrs.cfg]
+[include globals.cfg]  # includes all core macros
+```
+
+3. To enable optional macros, add them manually:
+```ini
+[include optional/test_speed.cfg]
+[include optional/z_tilt_adjust.cfg]
 ```
 
 ---
@@ -76,11 +141,12 @@ END_PRINT
 
 ## ✅ Highlights
 
-- Designed for real-world use (Voron, bedslingers, CoreXY, delta)
-- Parameterized with `_macro_globals`
-- Safe, fail-resistant behavior with clean G-code state management
-- Human-readable console output using `RESPOND`
-- Minimal assumptions about hardware
+- 🔒 Acceleration lock for consistent motion
+- 🔁 Automatic mesh and tilt routines
+- 🧪 Built-in test patterns for motion tuning
+- 📊 Detailed console feedback via RESPOND
+- ⚙️ Globalized config for easy tuning
+- 💡 Minimal slicer logic: macros handle everything
 
 ---
 
