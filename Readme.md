@@ -1,65 +1,103 @@
-# 📘 Klipper Macro Collection
+# Klipper Macro Collection
 
-A modular set of well-documented Klipper macros designed to improve reliability, maintainability, and configurability of your 3D printer setup.
+A modular set of Klipper macros focused on reliability, clear configuration, and predictable print lifecycle behavior.
 
 ---
 
-## 📁 Macros Overview
-
-Below is an overview of included files and the G-code commands they provide.
+## Macros overview
 
 ### `globals.cfg`
-Contains all configurable variables used across macros — heater targets, purge behavior, acceleration limits, autotune thresholds, etc. This file **must be included** in your Klipper config.
-It also includes the core macros listed below:
 
-### Included by `globals.cfg`
-These macros are included automatically when you load `globals.cfg`:
+Central variables (`_macro_globals`) and `[include …]` for the rest of the collection. **Include this file** from `printer.cfg`:
 
-- **`print_start.cfg`** — Defines `PRINT_START` for full pre-print setup.
-- **`print_end.cfg`** — Provides `PRINT_END` to safely finish a print.
-- **`filament.cfg`** — Public surface like imported km: `LOAD_FILAMENT`, `UNLOAD_FILAMENT`, `M701`, `M702`; plus `PAUSE_AFTER_D` (`AFTER=UNLOAD|REMIND`). Underscore-prefixed names in sources are internal helpers only.
-- **`layers.cfg`** — `BEFORE_LAYER_CHANGE` / `AFTER_LAYER_CHANGE` (slicer hooks), `GCODE_AT_LAYER`, `INIT_LAYER_GCODE` (optional `LAYERS` in `PRINT_START`), `RESET_LAYER_GCODE` (from `PRINT_END`), `CANCEL_ALL_LAYER_GCODE`, `PAUSE_NEXT_LAYER`, `PAUSE_AT_LAYER`, `SPEED_AT_LAYER`, `FLOW_AT_LAYER`. Needs `[display_status]` for `SET_PRINT_STATS_INFO` / `print_stats.info`. Internal: `_LAYER_RUN`.
-- **`pid.cfg`** — Adds `PID_ALL` to autotune all configured heaters (bed + extruders).
-- **`lock_accel.cfg`** — Implements `LOCK_ACCEL`, `UNLOCK_ACCEL`, and overrides `M204` and `SET_VELOCITY_LIMIT` to block changes.
+```ini
+[include globals.cfg]
+```
 
-### Optional Macros
-Files in `optional/` are not always pulled in by default. **`print_checkpoint.cfg`** is included from `globals.cfg`; the rest are included only if you add them to `printer.cfg`.
+### Included when you load `globals.cfg`
 
-- **`print_checkpoint.cfg`** — Periodic SD bookmark (`ENABLE_PRINT_CHECKPOINT` / …) via `[save_variables]`; interval `variable_checkpoint_interval`. **`RECOVER_PRINT_CHECKPOINT`** (default `AUTO_SD=1`): `SDCARD_RESET_FILE`, `M23` + `M26 S` byte offset from checkpoint, `G28 X Y`, pause park + `SET_KINEMATIC_POSITION`, `G1` to saved XYZ, heat, `M24` — no Moonraker job restart (file must exist under `[virtual_sdcard]`; stock `M23` only lists the card root, so nested paths may need `FILENAME=` / a `[gcode_shell_command]` wrapper). `AUTO_SD=0`: old flow — job already paused, then `RESUME`. Optional shell: e.g. KIAUH `gcode_shell_command` + `RUN_SHELL_COMMAND` in a wrapper macro. Risky if Z/part do not match reality; see file header.
-- **`z_tilt_adjust.cfg`** — Provides the `Z_TILT_ADJUST` command for safe 2-pass alignment.
-- **`quad_gantry_level.cfg`** — Defines `QUAD_GANTRY_LEVEL` macro that handles lifting, retrying, and state restore.
-- **`test_speed.cfg`** — Adds `TEST_SPEED`, which runs high-speed motion diagnostics with delta detection.
-- **`autotune_sgthrs.cfg`** — Adds `AUTOTUNE_SGTHRS_PHASE`, which finds optimal sensorless SGTHRS value.
+| File | Role |
+|------|------|
+| `print_start.cfg` | `PRINT_START` — homing, mesh/tilt, purge, heat sequencing. |
+| `print_end.cfg` | `PRINT_END` — park, retract, cooldown helpers. |
+| `state_guard.cfg` | Wraps `PRINT_START` / `PRINT_END` / `PAUSE` / `RESUME` / `CANCEL_PRINT` for `GLOBAL_STATE` and pause-park restore (`_PAUSE_PARK_STATE`). |
+| `filament.cfg` | `LOAD_FILAMENT`, `UNLOAD_FILAMENT`, `M701`, `M702`; `PAUSE_AFTER_D` (`AFTER=NONE`, `UNLOAD`, `REMIND`). |
+| `layers.cfg` | Layer hooks: `BEFORE_LAYER_CHANGE`, `AFTER_LAYER_CHANGE`, `GCODE_AT_LAYER`, `INIT_LAYER_GCODE` / `RESET_LAYER_GCODE`, pauses/speed/flow per layer. Needs `[display_status]`. |
+| `pid.cfg` | `PID_ALL` — autotune all `[extruder*]` heaters and `heater_bed`. |
+| `lock_accel.cfg` | `LOCK_ACCEL` / `UNLOCK_ACCEL`; overrides `M204` / `SET_VELOCITY_LIMIT`. |
+| `lock_fan.cfg` | Protects a chosen fan from slicer overrides. |
+| `optional/print_checkpoint.cfg` | SD bookmarks + optional recovery (see below). |
+
+### Optional files (include yourself)
+
+These live under `optional/` and are **not** pulled in by `globals.cfg` unless you add another `[include …]`:
+
+- `optional/z_tilt_adjust.cfg` — `Z_TILT_ADJUST`
+- `optional/quad_gantry_level.cfg` — `QUAD_GANTRY_LEVEL`
+- `optional/test_speed.cfg` — `TEST_SPEED`
+- `optional/autotune_sgthrs.cfg` — `AUTOTUNE_SGTHRS_PHASE`
 
 ---
 
-## 🧪 Command Parameters & Usage Examples
+## Print checkpoint (`optional/print_checkpoint.cfg`)
+
+Included from `globals.cfg`. Requires **`[save_variables]`** in `printer.cfg` (path to a writable variables file — see the comment header in `optional/print_checkpoint.cfg`).
+
+**Bookmarking (during SD print)**
+
+- `ENABLE_PRINT_CHECKPOINT` — starts periodic saves of pose + `virtual_sdcard` cursor (interval from `variable_checkpoint_interval` in `globals.cfg`, or `INTERVAL=` on the macro).
+- `DISABLE_PRINT_CHECKPOINT` — stops the timer; `PRINT_END` also calls this.
+- `READ_PRINT_CHECKPOINT` — prints last saved values to the console.
+
+**Recovery — `RECOVER_PRINT_CHECKPOINT`**
+
+Use after a fault when you still have a valid checkpoint on disk. **Wrong Z or file offset can damage the part or machine** — read the header in `optional/print_checkpoint.cfg`.
+
+Default **`AUTO_SD=1`** (no separate Moonraker “resume job” step): `CLEAR_PAUSE`, `SDCARD_RESET_FILE`, **`M23`** + **`M26 S`** (byte offset from checkpoint), `G28 X Y`, pause park + `SET_KINEMATIC_POSITION` (logical Z = saved Z + `variable_pause_lift_z`), `G1` to saved print XYZ, heat, **`M24`**.
+
+| Parameter | Meaning |
+|-----------|---------|
+| `AUTO_SD` | `1` (default): load file + offset and `M24`. `0`: only prep + `RESUME` if the job is already paused (e.g. Moonraker). |
+| `FILENAME=` | Override path stored in variables (relative to `[virtual_sdcard]`). |
+| `FILE_POS=` | Override byte offset (`print_ckpt_file_position`). |
+| `BED=` / `EXTRUDER=` or `EXT=` | Heat targets (defaults: `variable_pid_*` in `globals.cfg`). |
+| `LIFT=` | Pause lift (mm); default `variable_pause_lift_z`. |
+| `SYNC_E=` | `1` (default): `M82` + `G92 E` from checkpoint; `0` to skip. |
+| `SKIP_HEAT=1` | Do not wait on `M190` / `M109`. |
+| `SKIP_RESUME=1` | With `AUTO_SD=1`: stop before `M24` (run `M24` yourself when ready). |
+
+**Limitations**
+
+- Stock Klipper **`M23` only lists files in the virtual SD root**; jobs in subfolders may fail to open unless you pass a workable `FILENAME=` or use a host script (e.g. `[gcode_shell_command]` + `RUN_SHELL_COMMAND` in a small wrapper macro — example in the checkpoint file header).
+- Moonraker’s job panel may not match Klipper’s SD state after a raw `M24` recover; that is expected if you bypass the UI job queue.
+
+---
+
+## Command parameters and examples
 
 ### `PRINT_START`
-**Parameters:**
-- `BED` — target bed temperature (°C)
-- `EXTRUDER` — target hotend temperature (°C)
-- `MESH_MIN` — lower-left corner of mesh probe area (e.g. `30,30`)
-- `MESH_MAX` — upper-right corner of mesh probe area (e.g. `200,200`)
-- `LAYERS` — optional; if set, runs `INIT_LAYER_GCODE` for `layers.cfg` (slicer layer count / Prusa-style)
 
-**Example:**
+- `BED`, `EXTRUDER` — targets (°C)
+- `MESH_MIN`, `MESH_MAX` — mesh bounds (e.g. `30,30` / `200,200`)
+- `LAYERS` — optional; runs `INIT_LAYER_GCODE` for `layers.cfg`
+
 ```gcode
-START_PRINT BED=60 EXTRUDER=200 MESH_MIN=30,30 MESH_MAX=200,200
+PRINT_START BED=60 EXTRUDER=200 MESH_MIN=30,30 MESH_MAX=200,200
 ```
 
 ### `PRINT_END`
-**No parameters.** Cleans up after printing.
+
+No parameters.
+
 ```gcode
-END_PRINT
+PRINT_END
 ```
 
-### `PAUSE_AFTER_D`
-**Parameters:**
-- `D` — additional extrusion (mm) from current `print_stats.filament_used` before pausing
-- `AFTER` — optional: `NONE` (default), `UNLOAD` (run `UNLOAD_FILAMENT` after `PAUSE`), `REMIND` (`M117` + beeps)
+### `PAUSE_AFTER_D` (`filament.cfg`)
 
-**Examples:**
+- `D` — extra extrusion (mm) from current `print_stats.filament_used` before pausing
+- `AFTER` — `NONE` (default), `UNLOAD`, `REMIND`
+
 ```gcode
 PAUSE_AFTER_D D=15
 PAUSE_AFTER_D D=50 AFTER=UNLOAD
@@ -67,107 +105,117 @@ PAUSE_AFTER_D D=30 AFTER=REMIND
 ```
 
 ### Layer hooks (`layers.cfg`)
-Put in the slicer **Before layer change** / **After layer change** custom G-code:
+
+Slicer **Before / After layer change**:
+
 ```gcode
 BEFORE_LAYER_CHANGE HEIGHT={layer_z} LAYER={layer_num}
 AFTER_LAYER_CHANGE
 ```
-Schedule once (e.g. from console or start G-code):
+
+Other scheduling (console / start G-code):
+
 ```gcode
 GCODE_AT_LAYER LAYER=25 COMMAND="M117 layer 25"
 PAUSE_NEXT_LAYER
 SPEED_AT_LAYER LAYER=10 SPEED=80
 ```
-Requires `[display_status]` (or equivalent) so `SET_PRINT_STATS_INFO` exists.
+
+Requires `[display_status]` so `SET_PRINT_STATS_INFO` exists.
 
 ### `PID_ALL`
-Tunes every configured extruder section and `heater_bed` in sequence. Target temperatures come from `globals.cfg` (`variable_pid_ext_temp`, `variable_pid_bed_temp`). Run `SAVE_CONFIG` when finished.
 
-**Example:**
+Uses `variable_pid_ext_temp` and `variable_pid_bed_temp` from `globals.cfg`. Run **`SAVE_CONFIG`** after tuning.
+
 ```gcode
 PID_ALL
 ```
 
-### `LOCK_ACCEL`, `UNLOCK_ACCEL`
-**LOCK_ACCEL Parameters:**
-- `S` or `ACCEL` — acceleration value to enforce
+### `LOCK_ACCEL` / `UNLOCK_ACCEL`
 
-**Examples:**
+- `S` or `ACCEL` — enforced acceleration
+
 ```gcode
 LOCK_ACCEL ACCEL=3000
 UNLOCK_ACCEL
 ```
 
-### `TEST_SPEED` *(optional)*
-**Parameters:**
-- `SPEED`, `ACCEL`, `ITERATIONS`, `BOUND`, `SMALLPATTERNSIZE`, `MIN_CRUISE_RATIO`
+### `TEST_SPEED` *(optional include)*
 
-**Example:**
+`SPEED`, `ACCEL`, `ITERATIONS`, `BOUND`, `SMALLPATTERNSIZE`, `MIN_CRUISE_RATIO`
+
 ```gcode
 TEST_SPEED SPEED=300 ACCEL=2500 ITERATIONS=4
 ```
 
-### `Z_TILT_ADJUST` *(optional)*
-**No parameters.** Runs 1 or 2 passes of tilt leveling depending on current printer state.
+### `Z_TILT_ADJUST` *(optional include)*
 
-### `QUAD_GANTRY_LEVEL` *(optional)*
-**No parameters.** Wrapper for QGL with extra lift and retry.
+No parameters; one- or two-pass tilt per printer state.
 
-### `AUTOTUNE_SGTHRS_PHASE` *(optional)*
-**Parameters:**
-- `STEPPER`, `STEP`, `FEED`, `ACCEL`, `BOUND`, `SCALE_STEPS`, `MIN`, `MAX`
+### `QUAD_GANTRY_LEVEL` *(optional include)*
 
-**Example:**
+No parameters; QGL wrapper with lift/retry.
+
+### `AUTOTUNE_SGTHRS_PHASE` *(optional include)*
+
+`STEPPER`, `STEP`, `FEED`, `ACCEL`, `BOUND`, `SCALE_STEPS`, `MIN`, `MAX`
+
 ```gcode
 AUTOTUNE_SGTHRS_PHASE STEPPER=stepper_x ACCEL=3000 FEED=240
 ```
 
 ---
 
-## 🧰 Installation
+## Installation
 
-1. Copy all `.cfg` files into your Klipper config directory
-2. In `printer.cfg`, include this line:
+1. Copy the repo `.cfg` files into your Klipper config directory (or clone and point `[include]` at the folder).
+2. In `printer.cfg`:
 
 ```ini
-[include globals.cfg]  # includes all core macros
+[include globals.cfg]
 ```
 
-3. To enable optional macros, add them manually:
+3. Add **`[save_variables]`** if you use print checkpoint (see `optional/print_checkpoint.cfg` header).
+4. For other optional macros:
+
 ```ini
 [include optional/test_speed.cfg]
 [include optional/z_tilt_adjust.cfg]
 ```
 
+(`print_checkpoint.cfg` is already included via `globals.cfg`; disable by editing `globals.cfg` if you do not want it.)
+
 ---
 
-## 🖨️ Slicer G-code (PrusaSlicer example)
+## Slicer G-code (PrusaSlicer-style example)
 
-### Start G-code
+### Start
+
 ```gcode
-START_PRINT BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature] \
+PRINT_START BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature] \
   MESH_MIN=[first_layer_print_min[0]],[first_layer_print_min[1]] \
   MESH_MAX=[first_layer_print_max[0]],[first_layer_print_max[1]]
 ```
 
-### End G-code
+### End
+
 ```gcode
-END_PRINT
+PRINT_END
 ```
 
 ---
 
-## ✅ Highlights
+## Highlights
 
-- 🔒 Acceleration lock for consistent motion
-- 🔁 Automatic mesh and tilt routines
-- 🧪 Built-in test patterns for motion tuning
-- 📊 Detailed console feedback via RESPOND
-- ⚙️ Globalized config for easy tuning
-- 💡 Minimal slicer logic: macros handle everything
+- Global tuning via `_macro_globals` in `globals.cfg`
+- Pause/park/restore coordinated with `PAUSE` / `RESUME` in `state_guard.cfg`
+- Filament load/unload and distance-based pause (`PAUSE_AFTER_D`)
+- Layer-change automation (`layers.cfg`)
+- Optional SD checkpoint + recover path (`print_checkpoint.cfg`)
+- `RESPOND` messages for operator feedback
 
 ---
 
-## 📝 License
+## License
 
 MIT — use, modify, and share freely.
