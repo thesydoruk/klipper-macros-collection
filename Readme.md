@@ -26,6 +26,7 @@ Central variables (`_macro_globals`) and `[include …]` for the rest of the col
 | `pid.cfg` | `PID_ALL` — autotune all `[extruder*]` heaters and `heater_bed`. |
 | `lock_accel.cfg` | `LOCK_ACCEL` / `UNLOCK_ACCEL`; overrides `SET_VELOCITY_LIMIT` (accel lock). |
 | `lock_fan.cfg` | Protects a chosen fan from slicer overrides. |
+| `velocity.cfg` | Marlin-style `M201` / `M203` / `M205` / `M900` and `RESET_VELOCITY_LIMITS` → `SET_VELOCITY_LIMIT` / `SET_PRESSURE_ADVANCE` (uses `variable_pressure_advance_scale`). |
 | `optional/print_checkpoint.cfg` | SD bookmarks + optional recovery (see below). |
 
 ### Optional files (include yourself)
@@ -102,6 +103,10 @@ No `G0`/`G1` in macro. Repeated `PID_CALIBRATE HEATER=…` — heater cycling an
 ### `lock_fan.cfg`
 
 `LOCK_FAN` / `UNLOCK_FAN` / `M106` / `M107` / `SET_FAN_SPEED` overrides: **no** axis or extruder motion.
+
+### `velocity.cfg`
+
+**No** `G0`/`G1`. `M201` / `M203` / `M205` call `SET_VELOCITY_LIMIT` (ACCEL, VELOCITY, or SQUARE_CORNER_VELOCITY from Marlin-style X/Y min); bare call with no axis params forwards `SET_VELOCITY_LIMIT` alone. `M900` calls `SET_PRESSURE_ADVANCE` when `variable_pressure_advance_scale` > 0. `RESET_VELOCITY_LIMITS` sets `ACCEL` to `[printer] max_accel`.
 
 ### `optional/print_checkpoint.cfg`
 
@@ -229,6 +234,21 @@ LOCK_ACCEL ACCEL=3000
 UNLOCK_ACCEL
 ```
 
+### `velocity.cfg` (`M201`, `M203`, `M205`, `M900`, `RESET_VELOCITY_LIMITS`)
+
+- `M201 X=… Y=…` — `SET_VELOCITY_LIMIT ACCEL=min(X,Y)` (mm/s²). No X/Y: bare `SET_VELOCITY_LIMIT`.
+- `M203 X=… Y=…` — `SET_VELOCITY_LIMIT VELOCITY=min(X,Y)` (mm/s).
+- `M205 X=… Y=…` — `SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=min(X,Y)`.
+- `M900 K=…` — `SET_PRESSURE_ADVANCE`; optional `T=` extruder index. Off if `variable_pressure_advance_scale` ≤ 0; else `ADVANCE = K * scale` (default scale `1.0` in `globals.cfg`).
+- `RESET_VELOCITY_LIMITS` — `SET_VELOCITY_LIMIT ACCEL=<printer max_accel>`.
+
+```gcode
+M201 X3000 Y3000
+M203 X150 Y150
+M900 K0.04
+RESET_VELOCITY_LIMITS
+```
+
 ### `TEST_SPEED` *(optional include)*
 
 `SPEED`, `ACCEL`, `ITERATIONS`, `BOUND`, `SMALLPATTERNSIZE`, `MIN_CRUISE_RATIO`
@@ -301,6 +321,7 @@ PRINT_END
 - Filament load/unload and distance-based pause (`PAUSE_AFTER_D`)
 - Layer-change automation (`layers.cfg`)
 - Optional SD checkpoint + recover path (`print_checkpoint.cfg`)
+- Marlin-style limits / PA via `velocity.cfg` (`M201`, `M203`, `M205`, `M900`)
 - `RESPOND` messages for operator feedback
 
 ---
