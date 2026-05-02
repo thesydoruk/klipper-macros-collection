@@ -2,6 +2,8 @@
 
 A modular set of Klipper macros focused on reliability, clear configuration, and predictable print lifecycle behavior.
 
+**Ukrainian documentation:** [Readme.uk.md](Readme.uk.md)
+
 ---
 
 ## Macros overview
@@ -296,9 +298,15 @@ AUTOTUNE_SGTHRS_PHASE STEPPER=stepper_x ACCEL=3000 FEED=240
 
 ---
 
-## Slicer G-code (PrusaSlicer-style example)
+## Slicer configuration
 
-### Start
+These macros are meant to be called from **slicer-generated G-code** (start/end scripts and layer-change hooks). Placeholders below are for **PrusaSlicer / SuperSlicer / OrcaSlicer** (Prusa-family placeholders). **Cura** uses different syntax; see the Cura subsection.
+
+### Start G-code (Prusa-family)
+
+**Where:** Printer Settings → Custom G-code → **Start G-code** (or Print Settings → Dependencies on version).
+
+Use **`PRINT_START`** (not `START_PRINT`). Pass bed and hotend targets and the **first-layer print area** so mesh and purge stay on the bed:
 
 ```gcode
 PRINT_START BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature] \
@@ -306,11 +314,74 @@ PRINT_START BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature]
   MESH_MAX=[first_layer_print_max[0]],[first_layer_print_max[1]]
 ```
 
-### End
+**Optional — layer scheduler (`layers.cfg`):** if you want `total_layer` / `GCODE_AT_LAYER` to work from the first layer, add total layer count from the slicer (example for PrusaSlicer total layer variable name may vary by version):
+
+```gcode
+PRINT_START BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature] \
+  MESH_MIN=[first_layer_print_min[0]],[first_layer_print_min[1]] \
+  MESH_MAX=[first_layer_print_max[0]],[first_layer_print_max[1]] \
+  LAYERS=[total_layer_count]
+```
+
+If your slicer does not expose a total layer placeholder, omit `LAYERS=` and use height-based `GCODE_AT_LAYER HEIGHT=…` only.
+
+**Do not** duplicate full homing or long heating in the slicer if `PRINT_START` already does it — keep start G-code to one `PRINT_START` line plus any **machine-specific** lines (e.g. `SET_GCODE_OFFSET`, chamber fan) your printer needs **before** or **after** as documented by your hardware.
+
+### End G-code (Prusa-family)
+
+**Where:** Custom G-code → **End G-code**.
 
 ```gcode
 PRINT_END
 ```
+
+### Before / after layer change (`layers.cfg`)
+
+**Where:** Print Settings → **Before layer change** / **After layer change** (Custom G-code).
+
+```gcode
+BEFORE_LAYER_CHANGE HEIGHT={layer_z} LAYER={layer_num}
+AFTER_LAYER_CHANGE
+```
+
+Requires **`[display_status]`** in `printer.cfg` so `SET_PRINT_STATS_INFO` works.
+
+### Pressure advance and velocity
+
+- **Slicer “Pressure advance” / Linear advance:** if you set PA in the slicer, it will emit `SET_PRESSURE_ADVANCE` (or firmware-dependent G-code). Our **`M900`** and **`variable_pressure_advance_scale`** apply when you use **M900** from G-code; set `variable_pressure_advance_scale` to `0` in `globals.cfg` if you want the slicer alone to control PA and avoid double scaling.
+- **Marlin-style limits:** slicers that emit **M201** / **M203** / **M205** are supported via **`velocity.cfg`** (after `lock_accel.cfg`, limits still respect **`LOCK_ACCEL`** on ACCEL).
+
+### Pause / filament from slicer
+
+- **`M600`:** not defined in this collection by default — map **Filament change** in the slicer to **`PAUSE`** (or add your own `[gcode_macro M600]` that calls `PAUSE`).
+- **`PAUSE_AFTER_D`:** start from a macro or console, not usually from per-print slicer start G-code.
+
+### OrcaSlicer / SuperSlicer
+
+Same placeholder style as PrusaSlicer for **`[first_layer_bed_temperature]`**, **`[first_layer_temperature]`**, **`[first_layer_print_min]`** / **`[first_layer_print_max]`** (verify exact names under **Dependencies** in your version). Layer change: **`{layer_z}`**, **`{layer_num}`** as in Prusa.
+
+### Cura
+
+Cura does not use Prusa bracket placeholders.
+
+- **Start G-code** (machine or extruder start): call **`PRINT_START`** with numeric or Cura **replacement patterns**, for example:
+
+```gcode
+PRINT_START BED={material_bed_temperature_layer_0} EXTRUDER={material_print_temperature_layer_0} MESH_MIN=30,30 MESH_MAX=200,200
+```
+
+Adjust **MESH_MIN** / **MESH_MAX** to match your bed printable area (or omit both if you want purge without mesh bounds — see `print_start.cfg`).
+
+- **End G-code:** `PRINT_END`
+- **Before/after layer:** Extensions → **Post-processing** or **At height** scripts, or use Cura’s “Insert at layer” plugins — there is no single built-in hook like Prusa’s; you must inject `BEFORE_LAYER_CHANGE` / `AFTER_LAYER_CHANGE` at the right layers if you rely on **`layers.cfg`**.
+
+### Bambu Studio / other hosts
+
+Bambu and some hosts use different variable names and may send **internal** start sequences. Minimum integration: ensure the final start sequence ends with heating/homing/purge equivalent to **`PRINT_START`**, or call **`PRINT_START`** once with manually chosen **BED**, **EXTRUDER**, **MESH_***, if the host allows custom G-code insertion.
+
+### SD vs USB printing
+
+**`print_checkpoint.cfg`** and **`RECOVER_PRINT_CHECKPOINT`** assume **`[virtual_sdcard]`** (typical Moonraker setup). Pure USB serial printing from the slicer may not populate `virtual_sdcard` — checkpoint and recover are intended for **host-based SD** workflows.
 
 ---
 
@@ -328,6 +399,7 @@ PRINT_END
 
 ## Formatting (development)
 
+- **Translations:** [Readme.uk.md](Readme.uk.md) (Ukrainian — installation, slicer setup, module overview).
 - **Editor:** open the repo folder in Cursor/VS Code — workspace settings trim trailing whitespace, insert a final newline, and use LF on save (see `.vscode/settings.json`). `.editorconfig` aligns other editors (install the EditorConfig extension if needed).
 - **CLI (whole tree):** from repo root run `python scripts/format_all.py` to normalize `.cfg`, `.md`, `.mdc`, `.ini`, `.json`, `.yml`/`.yaml` under the tree (skips `.git`, etc.).
 - **Contributors / agents:** follow `.cursor/rules/format-before-save.mdc` when changing tracked text files.
