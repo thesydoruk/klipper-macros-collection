@@ -19,12 +19,13 @@ These macros are included automatically when you load `globals.cfg`:
 - **`print_end.cfg`** — Provides `PRINT_END` to safely finish a print.
 - **`filament.cfg`** — Public surface like imported km: `LOAD_FILAMENT`, `UNLOAD_FILAMENT`, `M701`, `M702`; plus `PAUSE_AFTER_D` (`AFTER=UNLOAD|REMIND`). Underscore-prefixed names in sources are internal helpers only.
 - **`layers.cfg`** — `BEFORE_LAYER_CHANGE` / `AFTER_LAYER_CHANGE` (slicer hooks), `GCODE_AT_LAYER`, `INIT_LAYER_GCODE` (optional `LAYERS` in `PRINT_START`), `RESET_LAYER_GCODE` (from `PRINT_END`), `CANCEL_ALL_LAYER_GCODE`, `PAUSE_NEXT_LAYER`, `PAUSE_AT_LAYER`, `SPEED_AT_LAYER`, `FLOW_AT_LAYER`. Needs `[display_status]` for `SET_PRINT_STATS_INFO` / `print_stats.info`. Internal: `_LAYER_RUN`.
-- **`pid.cfg`** — Adds `PID_B` and `PID_E` to autotune bed and hotend.
+- **`pid.cfg`** — Adds `PID_ALL` to autotune all configured heaters (bed + extruders).
 - **`lock_accel.cfg`** — Implements `LOCK_ACCEL`, `UNLOCK_ACCEL`, and overrides `M204` and `SET_VELOCITY_LIMIT` to block changes.
 
-### Optional Macros (include manually if needed) (include manually if needed)
-These macros are stored in the `optional/` folder and must be explicitly included:
+### Optional Macros
+Files in `optional/` are not always pulled in by default. **`print_checkpoint.cfg`** is included from `globals.cfg`; the rest are included only if you add them to `printer.cfg`.
 
+- **`print_checkpoint.cfg`** — Periodic SD print bookmark (`ENABLE_PRINT_CHECKPOINT` / `DISABLE_PRINT_CHECKPOINT` / `READ_PRINT_CHECKPOINT`) using `[save_variables]`; not automatic resume after power loss (see header in file). Interval: `variable_checkpoint_interval` in `globals.cfg`.
 - **`z_tilt_adjust.cfg`** — Provides the `Z_TILT_ADJUST` command for safe 2-pass alignment.
 - **`quad_gantry_level.cfg`** — Defines `QUAD_GANTRY_LEVEL` macro that handles lifting, retrying, and state restore.
 - **`test_speed.cfg`** — Adds `TEST_SPEED`, which runs high-speed motion diagnostics with delta detection.
@@ -79,14 +80,12 @@ SPEED_AT_LAYER LAYER=10 SPEED=80
 ```
 Requires `[display_status]` (or equivalent) so `SET_PRINT_STATS_INFO` exists.
 
-### `PID_B`, `PID_E`
-**Parameters:**
-- `T` — optional target temp for PID tuning (°C)
+### `PID_ALL`
+Tunes every configured extruder section and `heater_bed` in sequence. Target temperatures come from `globals.cfg` (`variable_pid_ext_temp`, `variable_pid_bed_temp`). Run `SAVE_CONFIG` when finished.
 
-**Examples:**
+**Example:**
 ```gcode
-PID_B T=70      ; tune bed to 70°C
-PID_E           ; tune hotend to default temp
+PID_ALL
 ```
 
 ### `LOCK_ACCEL`, `UNLOCK_ACCEL`
