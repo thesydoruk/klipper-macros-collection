@@ -24,7 +24,7 @@ Central variables (`_macro_globals`) and `[include …]` for the rest of the col
 | `filament.cfg` | `LOAD_FILAMENT`, `UNLOAD_FILAMENT`, `M701`, `M702`; `PAUSE_AFTER_D` (`AFTER=NONE`, `UNLOAD`, `REMIND`). |
 | `layers.cfg` | Layer hooks: `BEFORE_LAYER_CHANGE`, `AFTER_LAYER_CHANGE`, `GCODE_AT_LAYER`, `INIT_LAYER_GCODE` / `RESET_LAYER_GCODE`, pauses/speed/flow per layer. Needs `[display_status]`. |
 | `pid.cfg` | `PID_ALL` — autotune all `[extruder*]` heaters and `heater_bed`. |
-| `lock_accel.cfg` | `LOCK_ACCEL` / `UNLOCK_ACCEL`; overrides `M204` / `SET_VELOCITY_LIMIT`. |
+| `lock_accel.cfg` | `LOCK_ACCEL` / `UNLOCK_ACCEL`; overrides `SET_VELOCITY_LIMIT` (accel lock). |
 | `lock_fan.cfg` | Protects a chosen fan from slicer overrides. |
 | `optional/print_checkpoint.cfg` | SD bookmarks + optional recovery (see below). |
 
@@ -36,6 +36,95 @@ These live under `optional/` and are **not** pulled in by `globals.cfg` unless y
 - `optional/quad_gantry_level.cfg` — `QUAD_GANTRY_LEVEL`
 - `optional/test_speed.cfg` — `TEST_SPEED`
 - `optional/autotune_sgthrs.cfg` — `AUTOTUNE_SGTHRS_PHASE`
+
+---
+
+## Kinematics reference (toolhead motion)
+
+**Policy:** Any new or changed macro in `*.cfg` must update this section. See `.cursor/rules/gcode-kinematics-doc.mdc` for the checklist.
+
+Conventions used below: **absolute** = `G90` unless noted; **relative** = `G91`. **E** = extruder only on `G1 E…` lines. Where a macro only changes limits/heaters/fans or runs nested commands (`PID_CALIBRATE`, `BED_MESH_CALIBRATE`, `Z_TILT_ADJUST`), the **printed** path is whatever those Klipper built-ins do on your machine; this section lists **explicit** `G`/`M` motion from these repo macros.
+
+### `globals.cfg` / `_macro_globals`
+
+No moves (variables only).
+
+### `print_start.cfg` — body of `_USER_PRINT_START` (`PRINT_START`)
+
+1. `G90`, `M83` (relative extrusion for purge block).
+2. `G28` — full homing (all axes per printer config).
+3. If mesh bounds set and **probe_eddy_ng**: `G1 Z10 F900`, `G1 X/Y` to mesh centre `F6000`, then `PROBE_EDDY_NG_TAP` / `EDDYNG_BED_MESH_EXPERIMENTAL` (motion per probe stack).
+4. Else if mesh set: `BED_MESH_CALIBRATE` (or adaptive) — probe path per mesh config.
+5. If `ext_temp > 0`: no XYZ in this phase (heat only).
+6. **Purge** (if `can_extrude`, width OK, `purge_length > 0`): `G92 E0`, `G1 Z2 F900`, `G1` to purge corner `F6000`, `G1 Z` = purge layer height `F300`, prime `G1 E… F300`, then alternating `G1 X` lines along Y stepping `+0.4 mm` per line with `E` and purge feedrate; `G92 E0` at end.
+7. Optional `INIT_LAYER_GCODE` — no motion unless that macro adds it.
+
+### `print_end.cfg` — `_USER_PRINT_END` (`PRINT_END`)
+
+If **XYZ homed**: `G91`; `G1 E-{retract}` `F1800`; `G1 Z+{lift_z}` `F900`; `G90`; `G1 X{park_x} Y{park_y} F6000`. If not homed: skip retract/lift/park (message only), `G90`. No motion in cooldown/reset phases (`BED_MESH_CLEAR`, fan/heat off, `M220`/`M221`, `RESET_LAYER_GCODE`, `DISABLE_PRINT_CHECKPOINT`, optional `PROBE_EDDY_NG_SET_TAP_OFFSET`).
+
+### `state_guard.cfg`
+
+| Macro | Motion beyond nested call |
+|--------|---------------------------|
+| `PRINT_START` / `PRINT_END` wrappers | None — forward to `_USER_*`. |
+| `PAUSE` | After `_USER_PAUSE` + `M400`: if XYZ homed and pause lift is positive: `G91`, `G1 Z+lift` at `variable_pause_lift_feedrate`, `G90`; then `G1 X/Y` to pause park at `variable_pause_park_feedrate`. If not homed: no move (still saves XYZ to `_PAUSE_PARK_STATE` for info). |
+| `RESUME` | If `_PAUSE_PARK_STATE.pending` and paused and XYZ homed: `G90`, `G1` to saved X/Y at pause-park feedrate, then `G1` to saved Z at lift feedrate; clear `pending`. Then `_USER_RESUME` (stock: `RESTORE_GCODE_STATE NAME=PAUSE_STATE MOVE=…`, resume SD if paused). |
+| `CANCEL_PRINT` | None in wrapper — clears `pending` and calls `_USER_CANCEL_PRINT`. |
+| `GLOBAL_STATE`, `_SET_GLOBAL_STATE`, `STATE_REQUIRE`, `_PAUSE_PARK_STATE` introspection | None. |
+
+### `filament.cfg`
+
+| Macro | Motion |
+|--------|--------|
+| `_FILAMENT_LOAD_UNLOAD` | `M83`; load: `G1 E+LENGTH` then `G1 E+priming_length` at set speeds; unload: short forward `E`, pause `G4`, retract/shape oscillations, then long retract. May `ACTIVATE_EXTRUDER`. No XYZ. |
+| `LOAD_FILAMENT` / `UNLOAD_FILAMENT` | Delegate to helper — **E only**. |
+| `_FILAMENT_PAUSE_FOR_CHANGE` | If SD/host printing: `PAUSE` (see `state_guard`). Else if not paused and XYZ homed and idle lift is positive: `G91`, `G1 Z+idle_lift`, `G90`. |
+| `M701` / `M702` | `_FILAMENT_PAUSE_FOR_CHANGE` then load/unload — **E** + optional **Z** lift as above. |
+| `PAUSE_AFTER_D` / `PAUSE_AT_D` | When threshold reached: `PAUSE` (and optionally `UNLOAD_FILAMENT`). No extra motion in the delayed template itself beyond that. |
+
+### `layers.cfg`
+
+| Macro | Motion |
+|--------|--------|
+| `BEFORE_LAYER_CHANGE` / `AFTER_LAYER_CHANGE` / `_LAYER_RUN` | None — stats + runs **scheduled strings** (`COMMAND=…`), which may contain motion (e.g. `PAUSE`, `M220`). |
+| `GCODE_AT_LAYER`, `PAUSE_NEXT_LAYER`, `PAUSE_AT_LAYER`, `SPEED_AT_LAYER`, `FLOW_AT_LAYER` | None at schedule time; motion when fired via `_LAYER_RUN`. |
+| `INIT_LAYER_GCODE` / `RESET_LAYER_GCODE` / `CANCEL_ALL_LAYER_GCODE` | None. |
+
+### `pid.cfg` — `PID_ALL`
+
+No `G0`/`G1` in macro. Repeated `PID_CALIBRATE HEATER=…` — heater cycling and any probe motion are defined by Klipper’s PID implementation.
+
+### `lock_accel.cfg`
+
+`LOCK_ACCEL` / `UNLOCK_ACCEL` / overridden `SET_VELOCITY_LIMIT`: **no** tool moves (limits only).
+
+### `lock_fan.cfg`
+
+`LOCK_FAN` / `UNLOCK_FAN` / `M106` / `M107` / `SET_FAN_SPEED` overrides: **no** axis or extruder motion.
+
+### `optional/print_checkpoint.cfg`
+
+| Macro / template | Motion |
+|-------------------|--------|
+| `_PRINT_CHECKPOINT_TICK`, `ENABLE_*` / `DISABLE_*` / `READ_*` | None (variables / `RESPOND` / `SAVE_VARIABLE`). |
+| `RECOVER_PRINT_CHECKPOINT` | If `AUTO_SD=1`: virtual SD reset/load/seek (no steppers). Then `G28 X Y`, `G90`, `G1` to pause park XY, `M400`, `SET_KINEMATIC_POSITION X/Y/Z` (logical Z = saved Z + lift, `SET_HOMED=XYZ`). If `AUTO_SD=1`: `G1` to saved print XY, `G1` to saved Z; if `AUTO_SD=0`: skip those (handled by `RESUME`). Optional `M82` + `G92 E`. Heat only; then `M24` or `RESUME` per mode. |
+
+### `optional/z_tilt_adjust.cfg` — `Z_TILT_ADJUST`
+
+`SAVE_GCODE_STATE`; optional `BED_MESH_CLEAR`; conditional `_Z_TILT_ADJUST horizontal_move_z={lift} …` then `_Z_TILT_ADJUST`; `RESTORE_GCODE_STATE`. **XY/Z motion** is entirely inside stock / renamed `Z_TILT_ADJUST` (probing moves).
+
+### `optional/quad_gantry_level.cfg` — `QUAD_GANTRY_LEVEL`
+
+Same pattern as Z tilt: mesh clear, optional coarse `_QUAD_GANTRY_LEVEL` with `horizontal_move_z`, refinement pass, `RESTORE_GCODE_STATE`. **Motion** from stock QGL.
+
+### `optional/test_speed.cfg` — `TEST_SPEED`
+
+`SAVE_GCODE_STATE`; `M400`; `G28`; optional `QUAD_GANTRY_LEVEL` + `G28 Z`; `G90`; `G1` / `G0` positioning near max XY; `G28 X Y`; `G0` to near max corner; `G0` to `(x_min, y_min, Z=bound+10)` at test speed; raised `SET_VELOCITY_LIMIT`; many **`G0` box/diagonal patterns** inside build volume (large + small centre square); restore limits; `G28`; `G0` corner; `RESTORE_GCODE_STATE`.
+
+### `optional/autotune_sgthrs.cfg` — `AUTOTUNE_SGTHRS_PHASE`
+
+`SAVE_GCODE_STATE`; `G28`; `G0 Z{Z_SAFE}`; per SG value: `SET_VELOCITY_LIMIT`, square **`G0` pattern** around bed centre ±`RANGE`, diagonals, return centre; `G0` back to reference XY; **`G28 X Y`** for rehome check; loop; `RESTORE_GCODE_STATE`.
 
 ---
 
