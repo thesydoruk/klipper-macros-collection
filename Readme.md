@@ -325,13 +325,7 @@ With `AUTO_SD=0`, it prepares the same logical paused state but leaves the final
 
 ## Development Notes
 
-Before finishing edits to `.cfg`, `.md`, `.mdc`, `.ini`, JSON, or YAML files, run:
-
-```shell
-python scripts/format_all.py
-```
-
-The repo also contains `.editorconfig`, `.gitattributes`, and workspace settings for LF line endings, final newlines, and trimmed trailing whitespace.
+The repo contains `.editorconfig`, `.gitattributes`, and workspace settings for LF line endings, final newlines, and trimmed trailing whitespace. When editing `.cfg`, `.md`, `.mdc`, `.ini`, JSON, or YAML files, rely on those settings and keep the files clean before committing.
 
 ## License
 

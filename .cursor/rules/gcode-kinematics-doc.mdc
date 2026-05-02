@@ -16,4 +16,4 @@ When you **add** or **change** any user-facing or internal macro (`[gcode_macro 
 
 Pull requests and local edits should not merge macro behavior changes without the matching Readme kinematics update.
 
-After editing `.cfg` files, run `python scripts/format_all.py` (see `.cursor/rules/format-before-save.mdc`).
+After editing `.cfg` files, follow `.cursor/rules/format-before-save.mdc` before finishing.

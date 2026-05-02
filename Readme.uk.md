@@ -327,13 +327,7 @@ Bookmarking-макроси тільки читають статус і збер�
 
 ## Для розробки
 
-Перед завершенням змін у `.cfg`, `.md`, `.mdc`, `.ini`, JSON або YAML запустіть:
-
-```shell
-python scripts/format_all.py
-```
-
-У репозиторії також є `.editorconfig`, `.gitattributes` і workspace settings для LF, фінального newline і видалення зайвих пробілів.
+У репозиторії є `.editorconfig`, `.gitattributes` і workspace settings для LF, фінального newline і видалення зайвих пробілів. Перед комітом перевіряйте, що змінені `.cfg`, `.md`, `.mdc`, `.ini`, JSON або YAML файли відформатовані цими правилами.
 
 ## Ліцензія
 
