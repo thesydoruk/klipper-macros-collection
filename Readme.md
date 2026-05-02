@@ -305,6 +305,14 @@ PRINT_END
 
 ---
 
+## Formatting (development)
+
+- **Editor:** open the repo folder in Cursor/VS Code — workspace settings trim trailing whitespace, insert a final newline, and use LF on save (see `.vscode/settings.json`). `.editorconfig` aligns other editors (install the EditorConfig extension if needed).
+- **CLI (whole tree):** from repo root run `python scripts/format_all.py` to normalize `.cfg`, `.md`, `.mdc`, `.ini`, `.json`, `.yml`/`.yaml` under the tree (skips `.git`, etc.).
+- **Contributors / agents:** follow `.cursor/rules/format-before-save.mdc` when changing tracked text files.
+
+---
+
 ## License
 
 MIT — use, modify, and share freely.

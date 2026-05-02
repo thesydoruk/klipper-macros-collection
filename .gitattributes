@@ -1,0 +1,9 @@
+* text=auto eol=lf
+*.cfg text eol=lf
+*.md text eol=lf
+*.mdc text eol=lf
+*.ini text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

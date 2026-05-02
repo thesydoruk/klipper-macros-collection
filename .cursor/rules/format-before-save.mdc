@@ -1,0 +1,15 @@
+---
+description: Run repo formatter and rely on workspace format-on-save before finishing edits.
+globs: "**/*.{cfg,md,mdc,ini,json}"
+alwaysApply: true
+---
+
+# Format before saving / completing changes
+
+1. **Workspace:** `.vscode/settings.json` enables `editor.formatOnSave`, `files.trimTrailingWhitespace`, `files.insertFinalNewline`, and LF (`files.eol`). `.editorconfig` matches the same defaults for editors that support it.
+2. **Before you finish a task** that touched any `*.cfg`, `*.md`, `*.mdc`, `*.ini`, or repo `*.json` / `*.yml`, run from the repository root:
+   - `python scripts/format_all.py`
+   This normalizes UTF-8, LF line endings, trims trailing whitespace, and ensures a single trailing newline.
+3. If you add a new text/config type that should follow the same rules, extend `EXTENSIONS` in `scripts/format_all.py` and mention it here.
+
+Do not commit intentional trailing whitespace or CRLF-only files unless a format exception is documented.

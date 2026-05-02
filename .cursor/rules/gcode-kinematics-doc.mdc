@@ -15,3 +15,5 @@ When you **add** or **change** any user-facing or internal macro (`[gcode_macro 
 5. Keep the Readme table/bullets aligned with the **actual** expanded gcode after Jinja — after edits, re-read the `.cfg` source before updating docs.
 
 Pull requests and local edits should not merge macro behavior changes without the matching Readme kinematics update.
+
+After editing `.cfg` files, run `python scripts/format_all.py` (see `.cursor/rules/format-before-save.mdc`).
