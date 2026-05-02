@@ -17,7 +17,7 @@ These macros are included automatically when you load `globals.cfg`:
 
 - **`print_start.cfg`** — Defines `PRINT_START` for full pre-print setup.
 - **`print_end.cfg`** — Provides `PRINT_END` to safely finish a print.
-- **`filament.cfg`** — `LOAD_FILAMENT`, `UNLOAD_FILAMENT`, `LOAD_FILAMENT_PAUSE`, `UNLOAD_FILAMENT_PAUSE`, `PAUSE_AFTER_D` (optional `AFTER=UNLOAD|REMIND`). Public macros are **ALL_CAPS** and do not start with `_`.
+- **`filament.cfg`** — Public surface like imported km: `LOAD_FILAMENT`, `UNLOAD_FILAMENT`, `M701`, `M702`; plus `PAUSE_AFTER_D` (`AFTER=UNLOAD|REMIND`). Underscore-prefixed names in sources are internal helpers only.
 - **`pid.cfg`** — Adds `PID_B` and `PID_E` to autotune bed and hotend.
 - **`lock_accel.cfg`** — Implements `LOCK_ACCEL`, `UNLOCK_ACCEL`, and overrides `M204` and `SET_VELOCITY_LIMIT` to block changes.
 
