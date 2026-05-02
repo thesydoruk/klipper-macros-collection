@@ -6,14 +6,15 @@ alwaysApply: true
 
 # G-code macro kinematics documentation
 
-When you **add** or **change** any user-facing or internal macro (`[gcode_macro …]`, `[delayed_gcode …]`) in this repository:
+When you **add** or **change** any macro (`[gcode_macro …]`, `[delayed_gcode …]`) in this repository:
 
-1. **Update `Readme.md`** in the section **“Kinematics reference (toolhead motion)”** for the affected file(s).
-2. Describe motion in a **fixed order**: homing (`G28` / partial), `G90`/`G91`, each `G0`/`G1` (axes + feedrates where non-obvious), extruder-only moves (`M83`/`M82`, `G92 E`, `G1 E…`), `SET_KINEMATIC_POSITION`, nested commands that imply motion (`BED_MESH_CALIBRATE`, `Z_TILT_ADJUST`, `M24`, etc.).
-3. If the macro performs **no** tool motion (state only, heat, fan, `RESPOND`, `SAVE_VARIABLE`), state that explicitly (e.g. “None”).
-4. If motion is **entirely delegated** to a Klipper built-in or renamed stock command, say so and name the command; do not guess probe paths line-by-line unless you document “per Klipper `[section]` config”.
-5. Keep the Readme table/bullets aligned with the **actual** expanded gcode after Jinja — after edits, re-read the `.cfg` source before updating docs.
+1. **Update `Readme.md`** (and **`Readme.uk.md`** when the Ukrainian doc is maintained) in the section **“Kinematics reference (toolhead motion)”** for the affected file(s), under the **user-facing** macro the operator or slicer calls (not under internal `_*` helpers).
+2. **Do not document internal helpers in Readme:** if the Klipper macro name starts with `_`, do **not** add it to the file list bullets or give it its own kinematics paragraph. Describe its tool motion inside the section for the **calling** public macro instead.
+3. Describe motion in a **fixed order**: homing (`G28` / partial), `G90`/`G91`, each `G0`/`G1` (axes + feedrates where non-obvious), extruder-only moves (`M83`/`M82`, `G92 E`, `G1 E…`), `SET_KINEMATIC_POSITION`, nested commands that imply motion (`BED_MESH_CALIBRATE`, `Z_TILT_ADJUST`, `M24`, etc.).
+4. If the macro performs **no** tool motion (state only, heat, fan, `RESPOND`, `SAVE_VARIABLE`), state that explicitly (e.g. “None”).
+5. If motion is **entirely delegated** to a Klipper built-in or renamed stock command, say so and name the command; do not guess probe paths line-by-line unless you document “per Klipper `[section]` config”.
+6. Keep the Readme table/bullets aligned with the **actual** expanded gcode after Jinja — after edits, re-read the `.cfg` source before updating docs.
 
-Pull requests and local edits should not merge macro behavior changes without the matching Readme kinematics update.
+Pull requests and local edits should not merge macro behavior changes without the matching Readme kinematics update (for the **public** entry points users rely on).
 
 After editing `.cfg` files, follow `.cursor/rules/format-before-save.mdc` before finishing.

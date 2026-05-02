@@ -6,7 +6,7 @@ Ukrainian docs: [Readme.uk.md](Readme.uk.md)
 
 ## What You Get
 
-Include `globals.cfg` once from `printer.cfg`. It pulls in the core macro files and exposes shared settings through `_macro_globals`.
+Include `globals.cfg` once from `printer.cfg`. It pulls in the core macro files and exposes shared settings in the globals macro defined there.
 
 ```ini
 [include globals.cfg]
@@ -265,7 +265,7 @@ No motion. It only includes files and stores variables.
 
 `PRINT_START` sets `G90` and `M83`, then performs a full `G28`. If mesh bounds are provided, it either runs the eddy path (`G1 Z10 F900`, move to mesh center at `F6000`, `PROBE_EDDY_NG_TAP`, `EDDYNG_BED_MESH_EXPERIMENTAL`) or calls `BED_MESH_CALIBRATE` with the configured mesh arguments.
 
-The purge section resets E with `G92 E0`, moves to `Z2` at `F900`, travels to the purge start at `F6000`, lowers to the purge height at `F300`, primes with `G1 E... F300`, then draws alternating purge lines with X/Y/E movement at the configured purge feedrate. It ends with `G92 E0`.
+The purge phase (with mesh bounds from the slicer when provided, otherwise axis margins) assumes `G90` / `M83` already set: it may `G92 E0`, `G1 Z2 F900`, travel to the purge approach position at `F6000`, `G1 Z` to purge layer height at `F300`, prime with `G1 E… F300`, `G1` to the line start at `F600`, then alternating `G1` purge strokes with X/Y/E at the configured purge feedrate, and `G92 E0` when extruding; if the extruder cannot extrude or purge is skipped, it may only `RESPOND` (no tool motion).
 
 `INIT_LAYER_GCODE`, when called through `LAYERS=`, does not move the toolhead.
 
@@ -281,15 +281,15 @@ The `PRINT_START` and `PRINT_END` wrappers only update state and forward to the 
 
 `PAUSE` saves the current position. After stock pause and `M400`, if XYZ is homed and pause lift is positive, it runs `G91`, lifts Z by `variable_pause_lift_z` at `variable_pause_lift_feedrate`, returns to `G90`, then moves to configured park X/Y at `variable_pause_park_feedrate`.
 
-`RESUME` returns from the pause park if `_PAUSE_PARK_STATE.pending` is set: `G90`, move to saved X/Y, then move to saved Z. It then clears `pending` and calls the renamed stock resume.
+`RESUME` returns from the pause park when a pause-park return is still pending: `G90`, move to saved X/Y, then move to saved Z. It then clears that pending state and calls the renamed stock resume.
 
-`CANCEL_PRINT`, `GLOBAL_STATE`, `_SET_GLOBAL_STATE`, `STATE_REQUIRE`, and `_PAUSE_PARK_STATE` introspection do not add motion.
+`CANCEL_PRINT`, `GLOBAL_STATE`, `STATE_REQUIRE`, and related state introspection do not add motion.
 
 ### `filament.cfg`
 
-`LOAD_FILAMENT` and `UNLOAD_FILAMENT` delegate to `_FILAMENT_LOAD_UNLOAD`. That helper uses `M83` and moves only E. Load pushes `LENGTH`, then `priming_length`. Unload does a small forward move, a dwell, shaping oscillations, and a longer retract.
+`LOAD_FILAMENT` and `UNLOAD_FILAMENT` share one implementation path: `M83` and E-only moves. Load pushes `LENGTH`, then `priming_length`. Unload does a small forward move, a dwell, shaping oscillations, and a longer retract.
 
-`M701` and `M702` first run `_FILAMENT_PAUSE_FOR_CHANGE`. During a print that means `PAUSE`. While idle, if the printer is homed and idle lift is enabled, it does `G91`, a Z lift, and `G90`. Then it performs the load or unload E moves.
+`M701` and `M702` first run the filament-change pause hook. During a print that means `PAUSE`. While idle, if the printer is homed and idle lift is enabled, it does `G91`, a Z lift, and `G90`. Then it performs the load or unload E moves.
 
 `PAUSE_AFTER_D` only monitors filament usage. When it fires, it calls `PAUSE` and optionally `UNLOAD_FILAMENT` or reminder beeps.
 

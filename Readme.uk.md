@@ -8,7 +8,7 @@
 
 ## Що входить
 
-Підключіть `globals.cfg` один раз у `printer.cfg`. Він підтягує основні файли та містить спільні налаштування в `_macro_globals`.
+Підключіть `globals.cfg` один раз у `printer.cfg`. Він підтягує основні файли та містить спільні налаштування в макросі globals, визначеному в цьому файлі.
 
 ```ini
 [include globals.cfg]
@@ -267,7 +267,7 @@ RECOVER_PRINT_CHECKPOINT
 
 `PRINT_START` виставляє `G90` і `M83`, потім робить повний `G28`. Якщо передані межі mesh, макрос або виконує eddy-гілку (`G1 Z10 F900`, рух у центр mesh на `F6000`, `PROBE_EDDY_NG_TAP`, `EDDYNG_BED_MESH_EXPERIMENTAL`), або викликає `BED_MESH_CALIBRATE` з налаштованими аргументами.
 
-Purge-блок скидає E через `G92 E0`, рухається на `Z2` зі швидкістю `F900`, їде в початок purge на `F6000`, опускається на висоту purge на `F300`, робить prime через `G1 E... F300`, після чого малює черговані purge-лінії з рухом X/Y/E на налаштованій швидкості purge. В кінці знову виконує `G92 E0`.
+Фаза purge (з межами mesh зі слайсера, якщо передані, інакше відступи від меж осей) очікує вже виставлені `G90` / `M83`: може виконати `G92 E0`, `G1 Z2 F900`, підїзд до підходу purge на `F6000`, `G1 Z` на висоту шару purge з `F300`, prime `G1 E… F300`, `G1` на початок лінії з `F600`, далі черговані `G1` purge-штрихи з X/Y/E на налаштованій швидкості purge і `G92 E0` після екструзії; якщо extruder не може екструдувати або purge пропущено — лише `RESPOND` (без руху голови).
 
 `INIT_LAYER_GCODE`, якщо викликаний через `LAYERS=`, не рухає голову.
 
@@ -283,15 +283,15 @@ Purge-блок скидає E через `G92 E0`, рухається на `Z2` 
 
 `PAUSE` зберігає поточну позицію. Після stock pause і `M400`, якщо XYZ homed і pause lift додатній, він виконує `G91`, піднімає Z на `variable_pause_lift_z` зі швидкістю `variable_pause_lift_feedrate`, повертається в `G90`, потім їде в park X/Y зі швидкістю `variable_pause_park_feedrate`.
 
-`RESUME` повертає голову з pause park, якщо `_PAUSE_PARK_STATE.pending` встановлений: `G90`, рух у збережені X/Y, потім рух у збережений Z. Після цього очищає `pending` і викликає перейменований stock resume.
+`RESUME` повертає голову з pause park, якщо ще очікується повернення з pause park: `G90`, рух у збережені X/Y, потім рух у збережений Z. Після цього очищає цей pending-стан і викликає перейменований stock resume.
 
-`CANCEL_PRINT`, `GLOBAL_STATE`, `_SET_GLOBAL_STATE`, `STATE_REQUIRE` і перегляд `_PAUSE_PARK_STATE` не додають руху.
+`CANCEL_PRINT`, `GLOBAL_STATE`, `STATE_REQUIRE` і пов’язаний перегляд стану не додають руху.
 
 ### `filament.cfg`
 
-`LOAD_FILAMENT` і `UNLOAD_FILAMENT` делегують роботу в `_FILAMENT_LOAD_UNLOAD`. Цей helper використовує `M83` і рухає тільки E. Load проштовхує `LENGTH`, потім `priming_length`. Unload робить короткий forward move, dwell, shaping-осциляції і довший retract.
+`LOAD_FILAMENT` і `UNLOAD_FILAMENT` ділять одну реалізацію: `M83` і рух лише E. Load проштовхує `LENGTH`, потім `priming_length`. Unload робить короткий forward move, dwell, shaping-осциляції і довший retract.
 
-`M701` і `M702` спочатку виконують `_FILAMENT_PAUSE_FOR_CHANGE`. Під час друку це означає `PAUSE`. У idle-стані, якщо принтер homed і idle lift увімкнений, виконується `G91`, Z lift і `G90`. Потім ідуть E-рухи load або unload.
+`M701` і `M702` спочатку виконують hook паузи для зміни філаменту. Під час друку це означає `PAUSE`. У idle-стані, якщо принтер homed і idle lift увімкнений, виконується `G91`, Z lift і `G90`. Потім ідуть E-рухи load або unload.
 
 `PAUSE_AFTER_D` лише моніторить витрату філаменту. Коли поріг досягнуто, він викликає `PAUSE` і, залежно від `AFTER=`, може викликати `UNLOAD_FILAMENT` або нагадування з beep.
 
