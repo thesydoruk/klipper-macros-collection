@@ -17,7 +17,7 @@ These macros are included automatically when you load `globals.cfg`:
 
 - **`print_start.cfg`** — Defines `PRINT_START` for full pre-print setup.
 - **`print_end.cfg`** — Provides `PRINT_END` to safely finish a print.
-- **`pause_after_d.cfg`** — Adds `PAUSE_AFTER_D`, which pauses after specified extrusion distance.
+- **`filament.cfg`** — `LOAD_FILAMENT`, `UNLOAD_FILAMENT`, `M701`/`M702`, and `PAUSE_AFTER_D` (optional `AFTER=UNLOAD|REMIND`).
 - **`pid.cfg`** — Adds `PID_B` and `PID_E` to autotune bed and hotend.
 - **`lock_accel.cfg`** — Implements `LOCK_ACCEL`, `UNLOCK_ACCEL`, and overrides `M204` and `SET_VELOCITY_LIMIT` to block changes.
 
@@ -53,11 +53,14 @@ END_PRINT
 
 ### `PAUSE_AFTER_D`
 **Parameters:**
-- `D` — length of filament in mm after which to pause
+- `D` — additional extrusion (mm) from current `print_stats.filament_used` before pausing
+- `AFTER` — optional: `NONE` (default), `UNLOAD` (run `UNLOAD_FILAMENT` after `PAUSE`), `REMIND` (`M117` + beeps)
 
-**Example:**
+**Examples:**
 ```gcode
 PAUSE_AFTER_D D=15
+PAUSE_AFTER_D D=50 AFTER=UNLOAD
+PAUSE_AFTER_D D=30 AFTER=REMIND
 ```
 
 ### `PID_B`, `PID_E`
