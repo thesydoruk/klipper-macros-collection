@@ -18,6 +18,7 @@ These macros are included automatically when you load `globals.cfg`:
 - **`print_start.cfg`** — Defines `PRINT_START` for full pre-print setup.
 - **`print_end.cfg`** — Provides `PRINT_END` to safely finish a print.
 - **`filament.cfg`** — Public surface like imported km: `LOAD_FILAMENT`, `UNLOAD_FILAMENT`, `M701`, `M702`; plus `PAUSE_AFTER_D` (`AFTER=UNLOAD|REMIND`). Underscore-prefixed names in sources are internal helpers only.
+- **`layers.cfg`** — `BEFORE_LAYER_CHANGE` / `AFTER_LAYER_CHANGE` (slicer hooks), `GCODE_AT_LAYER`, `INIT_LAYER_GCODE` (optional `LAYERS` in `PRINT_START`), `RESET_LAYER_GCODE` (from `PRINT_END`), `CANCEL_ALL_LAYER_GCODE`, `PAUSE_NEXT_LAYER`, `PAUSE_AT_LAYER`, `SPEED_AT_LAYER`, `FLOW_AT_LAYER`. Needs `[display_status]` for `SET_PRINT_STATS_INFO` / `print_stats.info`. Internal: `_LAYER_RUN`.
 - **`pid.cfg`** — Adds `PID_B` and `PID_E` to autotune bed and hotend.
 - **`lock_accel.cfg`** — Implements `LOCK_ACCEL`, `UNLOCK_ACCEL`, and overrides `M204` and `SET_VELOCITY_LIMIT` to block changes.
 
@@ -39,6 +40,7 @@ These macros are stored in the `optional/` folder and must be explicitly include
 - `EXTRUDER` — target hotend temperature (°C)
 - `MESH_MIN` — lower-left corner of mesh probe area (e.g. `30,30`)
 - `MESH_MAX` — upper-right corner of mesh probe area (e.g. `200,200`)
+- `LAYERS` — optional; if set, runs `INIT_LAYER_GCODE` for `layers.cfg` (slicer layer count / Prusa-style)
 
 **Example:**
 ```gcode
@@ -62,6 +64,20 @@ PAUSE_AFTER_D D=15
 PAUSE_AFTER_D D=50 AFTER=UNLOAD
 PAUSE_AFTER_D D=30 AFTER=REMIND
 ```
+
+### Layer hooks (`layers.cfg`)
+Put in the slicer **Before layer change** / **After layer change** custom G-code:
+```gcode
+BEFORE_LAYER_CHANGE HEIGHT={layer_z} LAYER={layer_num}
+AFTER_LAYER_CHANGE
+```
+Schedule once (e.g. from console or start G-code):
+```gcode
+GCODE_AT_LAYER LAYER=25 COMMAND="M117 layer 25"
+PAUSE_NEXT_LAYER
+SPEED_AT_LAYER LAYER=10 SPEED=80
+```
+Requires `[display_status]` (or equivalent) so `SET_PRINT_STATS_INFO` exists.
 
 ### `PID_B`, `PID_E`
 **Parameters:**
