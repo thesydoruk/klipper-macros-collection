@@ -1,45 +1,64 @@
 # Колекція макросів Klipper
 
-Збірка модульних макросів для Klipper: старт/кінець друку, пауза, філамент, шари, checkpoint тощо.
+Це набір макросів для Klipper, який прибирає зайву логіку зі слайсера і переносить її в конфіг принтера. Слайсер викликає короткі `PRINT_START` і `PRINT_END`, а макроси вже займаються прогрівом, гомінгом, mesh, purge, паузою, філаментом, шарами, обмеженнями швидкості та, за бажанням, checkpoint для SD-друку.
 
-**Повна документація англійською** (кінематика, усі параметри, optional): [Readme.md](Readme.md)
+Англійська документація з повною довідкою по кінематиці: [Readme.md](Readme.md)
 
----
+## Що входить
 
-## Встановлення
-
-1. Скопіюйте `.cfg` у каталог конфігурації Klipper (або клонуйте репозиторій і підключіть `[include]` на папку).
-2. У **`printer.cfg`**:
+Підключається один файл:
 
 ```ini
 [include globals.cfg]
 ```
 
-3. Для **print checkpoint** додайте **`[save_variables]`** (шлях до файлу змінних — у заголовку `optional/print_checkpoint.cfg`).
-4. Додаткові файли з **`optional/`** підключайте окремо, наприклад:
+Він підтягує основні модулі:
+
+- `print_start.cfg`: `PRINT_START` для старту друку.
+- `print_end.cfg`: `PRINT_END` для завершення друку.
+- `state_guard.cfg`: обгортки `PAUSE`, `RESUME`, `CANCEL_PRINT`, стан принтера і повернення з park після паузи.
+- `filament.cfg`: `LOAD_FILAMENT`, `UNLOAD_FILAMENT`, `M701`, `M702`, `PAUSE_AFTER_D`.
+- `layers.cfg`: дії на шарах, паузи по шару, зміна швидкості або flow на шарі.
+- `pid.cfg`: `PID_ALL`.
+- `lock_accel.cfg`: блокування зміни прискорення.
+- `lock_fan.cfg`: блокування зміни вентилятора.
+- `velocity.cfg`: сумісність з Marlin-командами `M201`, `M203`, `M205`, `M900`.
+- `optional/print_checkpoint.cfg`: збереження позиції SD-друку і підготовка відновлення.
+
+Інші optional-макроси підключайте вручну:
 
 ```ini
 [include optional/test_speed.cfg]
 [include optional/z_tilt_adjust.cfg]
+[include optional/quad_gantry_level.cfg]
+[include optional/autotune_sgthrs.cfg]
 ```
 
-`print_checkpoint.cfg` уже підключений через `globals.cfg` (щоб вимкнути — закоментуйте рядок у `globals.cfg`).
+## Встановлення
 
----
+1. Скопіюйте або склонуйте репозиторій у каталог конфігурації Klipper.
+2. Додайте в `printer.cfg`:
+
+```ini
+[include globals.cfg]
+```
+
+3. Якщо користуєтесь checkpoint, додайте `[save_variables]`. Приклад є у верхньому коментарі файлу `optional/print_checkpoint.cfg`.
+4. Перезапустіть Klipper і перевірте консоль на помилки конфігурації.
+
+Якщо checkpoint не потрібен, закоментуйте в `globals.cfg`:
+
+```ini
+[include optional/print_checkpoint.cfg]
+```
 
 ## Налаштування слайсера
 
-Макроси викликаються з **G-коду, який генерує слайсер** (старт, фініш, зміна шару). Нижче — практичні шаблони.
+Ідея проста: слайсер не має знати всі деталі старту принтера. Він передає температуру, область першого шару і завершує друк одним викликом `PRINT_END`.
 
-### PrusaSlicer / SuperSlicer / OrcaSlicer
+### PrusaSlicer, SuperSlicer, OrcaSlicer
 
-У сімействі Prusa плейсхолдери виглядають як **`[ім'я]`** або **`{layer_z}`** залежно від місця.
-
-#### Стартовий G-код
-
-**Де:** Налаштування принтера → Користувацький G-код → **Початковий G-код** (або Залежності / Print settings — залежить від версії).
-
-Використовуйте **`PRINT_START`** (не `START_PRINT`). Передайте температури та **область першого шару** для сітки та purge:
+Стартовий G-код:
 
 ```gcode
 PRINT_START BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature] \
@@ -47,7 +66,7 @@ PRINT_START BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature]
   MESH_MAX=[first_layer_print_max[0]],[first_layer_print_max[1]]
 ```
 
-**Опційно — планувальник шарів (`layers.cfg`):** щоб працювали `total_layer` і `GCODE_AT_LAYER`, можна передати кількість шарів (перевірте точну назву змінної у вашій версії слайсера):
+Якщо у вашій версії слайсера є стабільна змінна загальної кількості шарів, можна додати `LAYERS=`:
 
 ```gcode
 PRINT_START BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature] \
@@ -56,89 +75,188 @@ PRINT_START BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature]
   LAYERS=[total_layer_count]
 ```
 
-Якщо слайсер не дає змінної «усього шарів», параметр **`LAYERS=`** можна опустити; тоді використовуйте **`GCODE_AT_LAYER HEIGHT=…`** за потреби.
+Якщо такої змінної немає, просто не передавайте `LAYERS`. Для планування за висотою це не критично.
 
-Не дублюйте повний `G28` і довгий прогрів у слайсері, якщо це вже робить **`PRINT_START`**.
-
-#### Кінцевий G-код
-
-**Де:** Користувацький G-код → **Кінцевий G-код**.
+Кінцевий G-код:
 
 ```gcode
 PRINT_END
 ```
 
-#### До / після зміни шару (`layers.cfg`)
-
-**Де:** Налаштування друку → **Перед зміною шару** / **Після зміни шару**.
+Перед зміною шару:
 
 ```gcode
 BEFORE_LAYER_CHANGE HEIGHT={layer_z} LAYER={layer_num}
+```
+
+Після зміни шару:
+
+```gcode
 AFTER_LAYER_CHANGE
 ```
 
-Потрібна секція **`[display_status]`** у `printer.cfg`.
+Для layer hooks потрібна секція `[display_status]` у `printer.cfg`.
 
-### Тиск / швидкості (velocity)
-
-- Якщо **pressure advance** задаєте в слайсері, він зазвичай шле свій `SET_PRESSURE_ADVANCE`. Макрос **`M900`** і **`variable_pressure_advance_scale`** у `globals.cfg` стосуються саме викликів **M900** з G-коду; щоб не подвоювати логіку, поставте **`variable_pressure_advance_scale: 0`** — тоді **M900** з макросів ігнорується, лишається керування зі слайсера.
-- Слайсери з **M201 / M203 / M205** підтримуються через **`velocity.cfg`** (обмеження на **ACCEL** усе ще може блокувати **`LOCK_ACCEL`**).
-
-### Пауза / філамент
-
-- **Зміна філаменту (`M600`):** у цій колекції **`M600`** за замовчуванням немає — у слайсері призначте дію на **`PAUSE`** або додайте свій `[gcode_macro M600]` з викликом `PAUSE`.
-- **`PAUSE_AFTER_D`** зазвичай запускають з консолі або іншого макросу, не зі стартового G-коду кожної моделі.
+Не дублюйте в слайсері повний `G28`, довгі очікування прогріву, mesh і purge, якщо це вже робить `PRINT_START`.
 
 ### Cura
 
-У Cura **інші** плейсхолдери, не як у Prusa.
-
-**Початок** (приклад — підлаштуйте координати сітки під стіл):
+У Cura інші змінні. Базовий приклад:
 
 ```gcode
 PRINT_START BED={material_bed_temperature_layer_0} EXTRUDER={material_print_temperature_layer_0} MESH_MIN=30,30 MESH_MAX=200,200
 ```
 
-**Кінець:** `PRINT_END`
+Підлаштуйте `MESH_MIN` і `MESH_MAX` під робочу область вашого столу. Якщо не хочете передавати межі mesh зі слайсера, їх можна прибрати.
 
-**Шари:** у Cura немає одного пари «до/після шару» як у Prusa; потрібні плагіни / post-processing / вставки по висоті, щоб викликати **`BEFORE_LAYER_CHANGE`** / **`AFTER_LAYER_CHANGE`**, якщо ви використовуєте **`layers.cfg`**.
+Кінець:
 
-### Bambu Studio та інші хости
+```gcode
+PRINT_END
+```
 
-Імена змінних і вбудовані послідовності старту відрізняються. Мінімум: або вставте виклик **`PRINT_START`** з явними **BED / EXTRUDER / MESH_***, або повторіть еквівалент прогріву/гомінгу/purge узгоджено з вашим принтером.
+У Cura немає такого ж простого поля "before/after layer", як у Prusa-family слайсерах. Якщо вам потрібен `layers.cfg`, використовуйте post-processing або вставку G-коду на потрібних шарах.
 
-### SD-друк і checkpoint
+### Pressure advance, velocity і M600
 
-**`print_checkpoint`** і **`RECOVER_PRINT_CHECKPOINT`** розраховані на **`[virtual_sdcard]`** (типово Moonraker). Чистий друк лише по USB з ПК може не заповнювати `virtual_sdcard` — тоді checkpoint не застосовується.
+Якщо слайсер шле `M201`, `M203` або `M205`, `velocity.cfg` перетворює їх на Klipper `SET_VELOCITY_LIMIT`. Зміни прискорення все одно проходять через `lock_accel.cfg`.
 
----
+`M900 K=...` перетворюється на `SET_PRESSURE_ADVANCE`, якщо `variable_pressure_advance_scale` у `globals.cfg` більше нуля. Поставте `variable_pressure_advance_scale: 0`, якщо хочете повністю ігнорувати slicer `M900` і керувати pressure advance іншим способом.
 
-## Короткий огляд модулів
+`M600` тут спеціально не доданий. Для зміни філаменту зі слайсера використовуйте `PAUSE`, або створіть власний `[gcode_macro M600]`, який викличе `PAUSE` і вашу процедуру заміни.
 
-| Файл | Призначення |
-|------|-------------|
-| `globals.cfg` | Змінні `_macro_globals` і `[include …]` усіх основних модулів. |
-| `print_start.cfg` / `print_end.cfg` | `PRINT_START` / `PRINT_END`. |
-| `state_guard.cfg` | Обгортки `PAUSE` / `RESUME` / `CANCEL_PRINT`, `GLOBAL_STATE`, парк після паузи. |
-| `filament.cfg` | Завантаження/вивантаження, `M701`/`M702`, `PAUSE_AFTER_D`. |
-| `layers.cfg` | Події по шарах, `GCODE_AT_LAYER`, пауза/швидкість на шарі. |
-| `pid.cfg` | `PID_ALL`. |
-| `lock_accel.cfg` / `lock_fan.cfg` | Блокування прискорення / вентилятора. |
-| `velocity.cfg` | `M201`, `M203`, `M205`, `M900`, `RESET_VELOCITY_LIMITS`. |
-| `optional/print_checkpoint.cfg` | Закладки SD та відновлення. |
+## Найчастіші команди
 
-Деталі команд, параметри й **опис руху кінематики** — у [Readme.md](Readme.md).
+Старт і кінець друку:
 
----
+```gcode
+PRINT_START BED=60 EXTRUDER=200 MESH_MIN=30,30 MESH_MAX=200,200
+PRINT_END
+```
 
-## Форматування (для розробки)
+Філамент:
 
-- У Cursor/VS Code увімкнено збереження з підрізанням пробілів і LF (`.vscode/settings.json`).
-- З кореня репозиторію: `python scripts/format_all.py`
-- Правила для агентів: `.cursor/rules/`
+```gcode
+LOAD_FILAMENT
+UNLOAD_FILAMENT
+M701 L=80
+M702 U=80
+```
 
----
+Пауза після витрати певної кількості філаменту:
+
+```gcode
+PAUSE_AFTER_D D=15
+PAUSE_AFTER_D D=50 AFTER=UNLOAD
+PAUSE_AFTER_D D=30 AFTER=REMIND
+```
+
+Дії на шарах:
+
+```gcode
+GCODE_AT_LAYER LAYER=25 COMMAND="M117 layer 25"
+PAUSE_NEXT_LAYER
+SPEED_AT_LAYER LAYER=10 SPEED=80
+FLOW_AT_LAYER LAYER=20 FLOW=95
+```
+
+PID:
+
+```gcode
+PID_ALL
+SAVE_CONFIG
+```
+
+Обмеження прискорення і вентилятора:
+
+```gcode
+LOCK_ACCEL ACCEL=3000
+UNLOCK_ACCEL
+
+LOCK_FAN SPEED=0.5
+UNLOCK_FAN
+```
+
+Сумісність з Marlin-style командами:
+
+```gcode
+M201 X3000 Y3000
+M203 X150 Y150
+M205 X5 Y5
+M900 K0.04
+RESET_VELOCITY_LIMITS
+```
+
+## Checkpoint і відновлення
+
+`optional/print_checkpoint.cfg` працює з `[virtual_sdcard]`, тобто з типовим Moonraker / Mainsail друком. Якщо друкувати напряму з ПК через USB serial, checkpoint може не мати потрібної позиції файлу.
+
+Потрібен блок у `printer.cfg`:
+
+```ini
+[save_variables]
+filename: ~/printer_data/config/print_checkpoint_vars.cfg
+```
+
+Увімкнути збереження позиції:
+
+```gcode
+ENABLE_PRINT_CHECKPOINT
+```
+
+Подивитись останню збережену позицію:
+
+```gcode
+READ_PRINT_CHECKPOINT
+```
+
+Вимкнути:
+
+```gcode
+DISABLE_PRINT_CHECKPOINT
+```
+
+Відновлення:
+
+```gcode
+RECOVER_PRINT_CHECKPOINT
+```
+
+За замовчуванням `RECOVER_PRINT_CHECKPOINT` працює в режимі `AUTO_SD=1`: вибирає файл через virtual SD, ставить byte offset, робить `G28 X Y`, ставить логічну Z-позицію як "збережений Z + висота паузи", повертає сопло до збережених XY/Z, гріє і запускає `M24`.
+
+Корисні параметри:
+
+- `FILENAME=` і `FILE_POS=` - вручну перевизначити файл і позицію.
+- `BED=` / `EXTRUDER=` - температури для відновлення.
+- `LIFT=` - висота, яку враховувати як підйом після паузи.
+- `SYNC_E=0` - не робити `G92 E...`.
+- `SKIP_HEAT=1` - не чекати прогріву.
+- `SKIP_RESUME=1` - підготувати позицію, але не запускати друк.
+
+Важливо: це не магія і не гарантія безпечного power-loss recovery. Якщо модель зсунута, Z неправильний або offset у файлі не той, сопло може врізатися в деталь.
+
+## Рух кінематики
+
+Повний опис руху для кожного макроса підтримується в англійському [Readme.md](Readme.md). Коротко:
+
+- `PRINT_START` робить `G28`, за потреби mesh / probe, потім purge-рухи з E.
+- `PRINT_END` при homed XYZ робить retract, Z-lift і park.
+- `PAUSE` піднімає Z і їде в park; `RESUME` повертається до збережених XY/Z.
+- `LOAD_FILAMENT` / `UNLOAD_FILAMENT` рухають лише E.
+- `layers.cfg` сам не рухає принтер, але виконує заплановані команди.
+- `velocity.cfg`, `lock_accel.cfg`, `lock_fan.cfg`, `pid.cfg` не роблять `G0` / `G1`.
+- `RECOVER_PRINT_CHECKPOINT` рухає XY/Z і використовує `SET_KINEMATIC_POSITION`, тому його треба запускати тільки якщо ви розумієте стан принтера після збою.
+
+## Для розробки
+
+Перед завершенням змін у `.cfg`, `.md`, `.mdc`, `.ini`, JSON або YAML:
+
+```shell
+python scripts/format_all.py
+```
+
+У репозиторії є `.editorconfig`, `.gitattributes` і налаштування VS Code/Cursor для LF, final newline і видалення зайвих пробілів.
 
 ## Ліцензія
 
-MIT — вільне використання та зміни.
+MIT. Можна використовувати, змінювати і адаптувати під свій принтер.

@@ -1,312 +1,64 @@
 # Klipper Macro Collection
 
-A modular set of Klipper macros focused on reliability, clear configuration, and predictable print lifecycle behavior.
+This repository is a small, practical macro set for Klipper printers. It tries to keep slicer start/end G-code simple, put printer behavior in one place, and make pause, resume, filament changes, layer actions, velocity limits, and optional print checkpoints easier to reason about.
 
-**Ukrainian documentation:** [Readme.uk.md](Readme.uk.md)
+Ukrainian docs: [Readme.uk.md](Readme.uk.md)
 
----
+## What You Get
 
-## Macros overview
-
-### `globals.cfg`
-
-Central variables (`_macro_globals`) and `[include …]` for the rest of the collection. **Include this file** from `printer.cfg`:
+Include `globals.cfg` once from `printer.cfg`. It pulls in the core macro files and exposes shared settings through `_macro_globals`.
 
 ```ini
 [include globals.cfg]
 ```
 
-### Included when you load `globals.cfg`
-
-| File | Role |
-|------|------|
-| `print_start.cfg` | `PRINT_START` — homing, mesh/tilt, purge, heat sequencing. |
-| `print_end.cfg` | `PRINT_END` — park, retract, cooldown helpers. |
-| `state_guard.cfg` | Wraps `PRINT_START` / `PRINT_END` / `PAUSE` / `RESUME` / `CANCEL_PRINT` for `GLOBAL_STATE` and pause-park restore (`_PAUSE_PARK_STATE`). |
-| `filament.cfg` | `LOAD_FILAMENT`, `UNLOAD_FILAMENT`, `M701`, `M702`; `PAUSE_AFTER_D` (`AFTER=NONE`, `UNLOAD`, `REMIND`). |
-| `layers.cfg` | Layer hooks: `BEFORE_LAYER_CHANGE`, `AFTER_LAYER_CHANGE`, `GCODE_AT_LAYER`, `INIT_LAYER_GCODE` / `RESET_LAYER_GCODE`, pauses/speed/flow per layer. Needs `[display_status]`. |
-| `pid.cfg` | `PID_ALL` — autotune all `[extruder*]` heaters and `heater_bed`. |
-| `lock_accel.cfg` | `LOCK_ACCEL` / `UNLOCK_ACCEL`; overrides `SET_VELOCITY_LIMIT` (accel lock). |
-| `lock_fan.cfg` | Protects a chosen fan from slicer overrides. |
-| `velocity.cfg` | Marlin-style `M201` / `M203` / `M205` / `M900` and `RESET_VELOCITY_LIMITS` → `SET_VELOCITY_LIMIT` / `SET_PRESSURE_ADVANCE` (uses `variable_pressure_advance_scale`). |
-| `optional/print_checkpoint.cfg` | SD bookmarks + optional recovery (see below). |
-
-### Optional files (include yourself)
-
-These live under `optional/` and are **not** pulled in by `globals.cfg` unless you add another `[include …]`:
-
-- `optional/z_tilt_adjust.cfg` — `Z_TILT_ADJUST`
-- `optional/quad_gantry_level.cfg` — `QUAD_GANTRY_LEVEL`
-- `optional/test_speed.cfg` — `TEST_SPEED`
-- `optional/autotune_sgthrs.cfg` — `AUTOTUNE_SGTHRS_PHASE`
-
----
-
-## Kinematics reference (toolhead motion)
-
-**Policy:** Any new or changed macro in `*.cfg` must update this section. See `.cursor/rules/gcode-kinematics-doc.mdc` for the checklist.
-
-Conventions used below: **absolute** = `G90` unless noted; **relative** = `G91`. **E** = extruder only on `G1 E…` lines. Where a macro only changes limits/heaters/fans or runs nested commands (`PID_CALIBRATE`, `BED_MESH_CALIBRATE`, `Z_TILT_ADJUST`), the **printed** path is whatever those Klipper built-ins do on your machine; this section lists **explicit** `G`/`M` motion from these repo macros.
-
-### `globals.cfg` / `_macro_globals`
-
-No moves (variables only).
-
-### `print_start.cfg` — body of `_USER_PRINT_START` (`PRINT_START`)
-
-1. `G90`, `M83` (relative extrusion for purge block).
-2. `G28` — full homing (all axes per printer config).
-3. If mesh bounds set and **probe_eddy_ng**: `G1 Z10 F900`, `G1 X/Y` to mesh centre `F6000`, then `PROBE_EDDY_NG_TAP` / `EDDYNG_BED_MESH_EXPERIMENTAL` (motion per probe stack).
-4. Else if mesh set: `BED_MESH_CALIBRATE` (or adaptive) — probe path per mesh config.
-5. If `ext_temp > 0`: no XYZ in this phase (heat only).
-6. **Purge** (if `can_extrude`, width OK, `purge_length > 0`): `G92 E0`, `G1 Z2 F900`, `G1` to purge corner `F6000`, `G1 Z` = purge layer height `F300`, prime `G1 E… F300`, then alternating `G1 X` lines along Y stepping `+0.4 mm` per line with `E` and purge feedrate; `G92 E0` at end.
-7. Optional `INIT_LAYER_GCODE` — no motion unless that macro adds it.
-
-### `print_end.cfg` — `_USER_PRINT_END` (`PRINT_END`)
-
-If **XYZ homed**: `G91`; `G1 E-{retract}` `F1800`; `G1 Z+{lift_z}` `F900`; `G90`; `G1 X{park_x} Y{park_y} F6000`. If not homed: skip retract/lift/park (message only), `G90`. No motion in cooldown/reset phases (`BED_MESH_CLEAR`, fan/heat off, `M220`/`M221`, `RESET_LAYER_GCODE`, `DISABLE_PRINT_CHECKPOINT`, optional `PROBE_EDDY_NG_SET_TAP_OFFSET`).
-
-### `state_guard.cfg`
-
-| Macro | Motion beyond nested call |
-|--------|---------------------------|
-| `PRINT_START` / `PRINT_END` wrappers | None — forward to `_USER_*`. |
-| `PAUSE` | After `_USER_PAUSE` + `M400`: if XYZ homed and pause lift is positive: `G91`, `G1 Z+lift` at `variable_pause_lift_feedrate`, `G90`; then `G1 X/Y` to pause park at `variable_pause_park_feedrate`. If not homed: no move (still saves XYZ to `_PAUSE_PARK_STATE` for info). |
-| `RESUME` | If `_PAUSE_PARK_STATE.pending` and paused and XYZ homed: `G90`, `G1` to saved X/Y at pause-park feedrate, then `G1` to saved Z at lift feedrate; clear `pending`. Then `_USER_RESUME` (stock: `RESTORE_GCODE_STATE NAME=PAUSE_STATE MOVE=…`, resume SD if paused). |
-| `CANCEL_PRINT` | None in wrapper — clears `pending` and calls `_USER_CANCEL_PRINT`. |
-| `GLOBAL_STATE`, `_SET_GLOBAL_STATE`, `STATE_REQUIRE`, `_PAUSE_PARK_STATE` introspection | None. |
-
-### `filament.cfg`
-
-| Macro | Motion |
-|--------|--------|
-| `_FILAMENT_LOAD_UNLOAD` | `M83`; load: `G1 E+LENGTH` then `G1 E+priming_length` at set speeds; unload: short forward `E`, pause `G4`, retract/shape oscillations, then long retract. May `ACTIVATE_EXTRUDER`. No XYZ. |
-| `LOAD_FILAMENT` / `UNLOAD_FILAMENT` | Delegate to helper — **E only**. |
-| `_FILAMENT_PAUSE_FOR_CHANGE` | If SD/host printing: `PAUSE` (see `state_guard`). Else if not paused and XYZ homed and idle lift is positive: `G91`, `G1 Z+idle_lift`, `G90`. |
-| `M701` / `M702` | `_FILAMENT_PAUSE_FOR_CHANGE` then load/unload — **E** + optional **Z** lift as above. |
-| `PAUSE_AFTER_D` / `PAUSE_AT_D` | When threshold reached: `PAUSE` (and optionally `UNLOAD_FILAMENT`). No extra motion in the delayed template itself beyond that. |
-
-### `layers.cfg`
-
-| Macro | Motion |
-|--------|--------|
-| `BEFORE_LAYER_CHANGE` / `AFTER_LAYER_CHANGE` / `_LAYER_RUN` | None — stats + runs **scheduled strings** (`COMMAND=…`), which may contain motion (e.g. `PAUSE`, `M220`). |
-| `GCODE_AT_LAYER`, `PAUSE_NEXT_LAYER`, `PAUSE_AT_LAYER`, `SPEED_AT_LAYER`, `FLOW_AT_LAYER` | None at schedule time; motion when fired via `_LAYER_RUN`. |
-| `INIT_LAYER_GCODE` / `RESET_LAYER_GCODE` / `CANCEL_ALL_LAYER_GCODE` | None. |
-
-### `pid.cfg` — `PID_ALL`
-
-No `G0`/`G1` in macro. Repeated `PID_CALIBRATE HEATER=…` — heater cycling and any probe motion are defined by Klipper’s PID implementation.
-
-### `lock_accel.cfg`
-
-`LOCK_ACCEL` / `UNLOCK_ACCEL` / overridden `SET_VELOCITY_LIMIT`: **no** tool moves (limits only).
-
-### `lock_fan.cfg`
-
-`LOCK_FAN` / `UNLOCK_FAN` / `M106` / `M107` / `SET_FAN_SPEED` overrides: **no** axis or extruder motion.
-
-### `velocity.cfg`
-
-**No** `G0`/`G1`. `M201` / `M203` / `M205` call `SET_VELOCITY_LIMIT` (ACCEL, VELOCITY, or SQUARE_CORNER_VELOCITY from Marlin-style X/Y min); bare call with no axis params forwards `SET_VELOCITY_LIMIT` alone. `M900` calls `SET_PRESSURE_ADVANCE` when `variable_pressure_advance_scale` > 0. `RESET_VELOCITY_LIMITS` sets `ACCEL` to `[printer] max_accel`.
-
-### `optional/print_checkpoint.cfg`
-
-| Macro / template | Motion |
-|-------------------|--------|
-| `_PRINT_CHECKPOINT_TICK`, `ENABLE_*` / `DISABLE_*` / `READ_*` | None (variables / `RESPOND` / `SAVE_VARIABLE`). |
-| `RECOVER_PRINT_CHECKPOINT` | If `AUTO_SD=1`: virtual SD reset/load/seek (no steppers). Then `G28 X Y`, `G90`, `G1` to pause park XY, `M400`, `SET_KINEMATIC_POSITION X/Y/Z` (logical Z = saved Z + lift, `SET_HOMED=XYZ`). If `AUTO_SD=1`: `G1` to saved print XY, `G1` to saved Z; if `AUTO_SD=0`: skip those (handled by `RESUME`). Optional `M82` + `G92 E`. Heat only; then `M24` or `RESUME` per mode. |
-
-### `optional/z_tilt_adjust.cfg` — `Z_TILT_ADJUST`
-
-`SAVE_GCODE_STATE`; optional `BED_MESH_CLEAR`; conditional `_Z_TILT_ADJUST horizontal_move_z={lift} …` then `_Z_TILT_ADJUST`; `RESTORE_GCODE_STATE`. **XY/Z motion** is entirely inside stock / renamed `Z_TILT_ADJUST` (probing moves).
-
-### `optional/quad_gantry_level.cfg` — `QUAD_GANTRY_LEVEL`
-
-Same pattern as Z tilt: mesh clear, optional coarse `_QUAD_GANTRY_LEVEL` with `horizontal_move_z`, refinement pass, `RESTORE_GCODE_STATE`. **Motion** from stock QGL.
-
-### `optional/test_speed.cfg` — `TEST_SPEED`
-
-`SAVE_GCODE_STATE`; `M400`; `G28`; optional `QUAD_GANTRY_LEVEL` + `G28 Z`; `G90`; `G1` / `G0` positioning near max XY; `G28 X Y`; `G0` to near max corner; `G0` to `(x_min, y_min, Z=bound+10)` at test speed; raised `SET_VELOCITY_LIMIT`; many **`G0` box/diagonal patterns** inside build volume (large + small centre square); restore limits; `G28`; `G0` corner; `RESTORE_GCODE_STATE`.
-
-### `optional/autotune_sgthrs.cfg` — `AUTOTUNE_SGTHRS_PHASE`
-
-`SAVE_GCODE_STATE`; `G28`; `G0 Z{Z_SAFE}`; per SG value: `SET_VELOCITY_LIMIT`, square **`G0` pattern** around bed centre ±`RANGE`, diagonals, return centre; `G0` back to reference XY; **`G28 X Y`** for rehome check; loop; `RESTORE_GCODE_STATE`.
-
----
-
-## Print checkpoint (`optional/print_checkpoint.cfg`)
-
-Included from `globals.cfg`. Requires **`[save_variables]`** in `printer.cfg` (path to a writable variables file — see the comment header in `optional/print_checkpoint.cfg`).
-
-**Bookmarking (during SD print)**
-
-- `ENABLE_PRINT_CHECKPOINT` — starts periodic saves of pose + `virtual_sdcard` cursor (interval from `variable_checkpoint_interval` in `globals.cfg`, or `INTERVAL=` on the macro).
-- `DISABLE_PRINT_CHECKPOINT` — stops the timer; `PRINT_END` also calls this.
-- `READ_PRINT_CHECKPOINT` — prints last saved values to the console.
-
-**Recovery — `RECOVER_PRINT_CHECKPOINT`**
-
-Use after a fault when you still have a valid checkpoint on disk. **Wrong Z or file offset can damage the part or machine** — read the header in `optional/print_checkpoint.cfg`.
-
-Default **`AUTO_SD=1`** (no separate Moonraker “resume job” step): `CLEAR_PAUSE`, `SDCARD_RESET_FILE`, **`M23`** + **`M26 S`** (byte offset from checkpoint), `G28 X Y`, pause park + `SET_KINEMATIC_POSITION` (logical Z = saved Z + `variable_pause_lift_z`), `G1` to saved print XYZ, heat, **`M24`**.
-
-| Parameter | Meaning |
-|-----------|---------|
-| `AUTO_SD` | `1` (default): load file + offset and `M24`. `0`: only prep + `RESUME` if the job is already paused (e.g. Moonraker). |
-| `FILENAME=` | Override path stored in variables (relative to `[virtual_sdcard]`). |
-| `FILE_POS=` | Override byte offset (`print_ckpt_file_position`). |
-| `BED=` / `EXTRUDER=` or `EXT=` | Heat targets (defaults: `variable_pid_*` in `globals.cfg`). |
-| `LIFT=` | Pause lift (mm); default `variable_pause_lift_z`. |
-| `SYNC_E=` | `1` (default): `M82` + `G92 E` from checkpoint; `0` to skip. |
-| `SKIP_HEAT=1` | Do not wait on `M190` / `M109`. |
-| `SKIP_RESUME=1` | With `AUTO_SD=1`: stop before `M24` (run `M24` yourself when ready). |
-
-**Limitations**
-
-- Stock Klipper **`M23` only lists files in the virtual SD root**; jobs in subfolders may fail to open unless you pass a workable `FILENAME=` or use a host script (e.g. `[gcode_shell_command]` + `RUN_SHELL_COMMAND` in a small wrapper macro — example in the checkpoint file header).
-- Moonraker’s job panel may not match Klipper’s SD state after a raw `M24` recover; that is expected if you bypass the UI job queue.
-
----
-
-## Command parameters and examples
-
-### `PRINT_START`
-
-- `BED`, `EXTRUDER` — targets (°C)
-- `MESH_MIN`, `MESH_MAX` — mesh bounds (e.g. `30,30` / `200,200`)
-- `LAYERS` — optional; runs `INIT_LAYER_GCODE` for `layers.cfg`
-
-```gcode
-PRINT_START BED=60 EXTRUDER=200 MESH_MIN=30,30 MESH_MAX=200,200
-```
-
-### `PRINT_END`
-
-No parameters.
-
-```gcode
-PRINT_END
-```
-
-### `PAUSE_AFTER_D` (`filament.cfg`)
-
-- `D` — extra extrusion (mm) from current `print_stats.filament_used` before pausing
-- `AFTER` — `NONE` (default), `UNLOAD`, `REMIND`
-
-```gcode
-PAUSE_AFTER_D D=15
-PAUSE_AFTER_D D=50 AFTER=UNLOAD
-PAUSE_AFTER_D D=30 AFTER=REMIND
-```
-
-### Layer hooks (`layers.cfg`)
-
-Slicer **Before / After layer change**:
-
-```gcode
-BEFORE_LAYER_CHANGE HEIGHT={layer_z} LAYER={layer_num}
-AFTER_LAYER_CHANGE
-```
-
-Other scheduling (console / start G-code):
-
-```gcode
-GCODE_AT_LAYER LAYER=25 COMMAND="M117 layer 25"
-PAUSE_NEXT_LAYER
-SPEED_AT_LAYER LAYER=10 SPEED=80
-```
-
-Requires `[display_status]` so `SET_PRINT_STATS_INFO` exists.
-
-### `PID_ALL`
-
-Uses `variable_pid_ext_temp` and `variable_pid_bed_temp` from `globals.cfg`. Run **`SAVE_CONFIG`** after tuning.
-
-```gcode
-PID_ALL
-```
-
-### `LOCK_ACCEL` / `UNLOCK_ACCEL`
-
-- `S` or `ACCEL` — enforced acceleration
-
-```gcode
-LOCK_ACCEL ACCEL=3000
-UNLOCK_ACCEL
-```
-
-### `velocity.cfg` (`M201`, `M203`, `M205`, `M900`, `RESET_VELOCITY_LIMITS`)
-
-- `M201 X=… Y=…` — `SET_VELOCITY_LIMIT ACCEL=min(X,Y)` (mm/s²). No X/Y: bare `SET_VELOCITY_LIMIT`.
-- `M203 X=… Y=…` — `SET_VELOCITY_LIMIT VELOCITY=min(X,Y)` (mm/s).
-- `M205 X=… Y=…` — `SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=min(X,Y)`.
-- `M900 K=…` — `SET_PRESSURE_ADVANCE`; optional `T=` extruder index. Off if `variable_pressure_advance_scale` ≤ 0; else `ADVANCE = K * scale` (default scale `1.0` in `globals.cfg`).
-- `RESET_VELOCITY_LIMITS` — `SET_VELOCITY_LIMIT ACCEL=<printer max_accel>`.
-
-```gcode
-M201 X3000 Y3000
-M203 X150 Y150
-M900 K0.04
-RESET_VELOCITY_LIMITS
-```
-
-### `TEST_SPEED` *(optional include)*
-
-`SPEED`, `ACCEL`, `ITERATIONS`, `BOUND`, `SMALLPATTERNSIZE`, `MIN_CRUISE_RATIO`
-
-```gcode
-TEST_SPEED SPEED=300 ACCEL=2500 ITERATIONS=4
-```
-
-### `Z_TILT_ADJUST` *(optional include)*
-
-No parameters; one- or two-pass tilt per printer state.
-
-### `QUAD_GANTRY_LEVEL` *(optional include)*
-
-No parameters; QGL wrapper with lift/retry.
-
-### `AUTOTUNE_SGTHRS_PHASE` *(optional include)*
-
-`STEPPER`, `STEP`, `FEED`, `ACCEL`, `BOUND`, `SCALE_STEPS`, `MIN`, `MAX`
-
-```gcode
-AUTOTUNE_SGTHRS_PHASE STEPPER=stepper_x ACCEL=3000 FEED=240
-```
-
----
-
-## Installation
-
-1. Copy the repo `.cfg` files into your Klipper config directory (or clone and point `[include]` at the folder).
-2. In `printer.cfg`:
-
-```ini
-[include globals.cfg]
-```
-
-3. Add **`[save_variables]`** if you use print checkpoint (see `optional/print_checkpoint.cfg` header).
-4. For other optional macros:
+Core files loaded by `globals.cfg`:
+
+- `print_start.cfg`: `PRINT_START` for heating, homing, tilt/QGL, mesh, and purge.
+- `print_end.cfg`: `PRINT_END` for retract, lift, park, cooldown, and cleanup.
+- `state_guard.cfg`: wraps `PRINT_START`, `PRINT_END`, `PAUSE`, `RESUME`, and `CANCEL_PRINT`; tracks `GLOBAL_STATE`; restores the parked toolhead after pause.
+- `filament.cfg`: `LOAD_FILAMENT`, `UNLOAD_FILAMENT`, `M701`, `M702`, and `PAUSE_AFTER_D`.
+- `layers.cfg`: slicer layer hooks and scheduled commands such as `PAUSE_AT_LAYER`, `SPEED_AT_LAYER`, and `FLOW_AT_LAYER`.
+- `pid.cfg`: `PID_ALL` for bed and configured extruders.
+- `lock_accel.cfg`: `LOCK_ACCEL` / `UNLOCK_ACCEL` with a protected `SET_VELOCITY_LIMIT`.
+- `lock_fan.cfg`: `LOCK_FAN` / `UNLOCK_FAN` with protected fan commands.
+- `velocity.cfg`: Marlin-style `M201`, `M203`, `M205`, `M900`, and `RESET_VELOCITY_LIMITS`.
+- `optional/print_checkpoint.cfg`: included by default; periodically saves SD print position and can prepare a recovery attempt.
+
+Optional files you include only when you need them:
 
 ```ini
 [include optional/test_speed.cfg]
 [include optional/z_tilt_adjust.cfg]
+[include optional/quad_gantry_level.cfg]
+[include optional/autotune_sgthrs.cfg]
 ```
 
-(`print_checkpoint.cfg` is already included via `globals.cfg`; disable by editing `globals.cfg` if you do not want it.)
+## Install
 
----
+1. Copy or clone this repository into your Klipper config area.
+2. Add this to `printer.cfg`:
 
-## Slicer configuration
+```ini
+[include globals.cfg]
+```
 
-These macros are meant to be called from **slicer-generated G-code** (start/end scripts and layer-change hooks). Placeholders below are for **PrusaSlicer / SuperSlicer / OrcaSlicer** (Prusa-family placeholders). **Cura** uses different syntax; see the Cura subsection.
+3. If you want print checkpoints, add `[save_variables]` to `printer.cfg`. The required shape is shown in the header of `optional/print_checkpoint.cfg`.
+4. Restart Klipper and check the console for missing dependencies.
 
-### Start G-code (Prusa-family)
+If you do not want checkpoint macros at all, comment out this line in `globals.cfg`:
 
-**Where:** Printer Settings → Custom G-code → **Start G-code** (or Print Settings → Dependencies on version).
+```ini
+[include optional/print_checkpoint.cfg]
+```
 
-Use **`PRINT_START`** (not `START_PRINT`). Pass bed and hotend targets and the **first-layer print area** so mesh and purge stay on the bed:
+## Slicer Setup
+
+The slicer should call the printer-level macros. Do not duplicate full homing, bed mesh, and long heat waits in slicer start G-code if `PRINT_START` already does that work.
+
+### PrusaSlicer, SuperSlicer, OrcaSlicer
+
+Start G-code:
 
 ```gcode
 PRINT_START BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature] \
@@ -314,7 +66,7 @@ PRINT_START BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature]
   MESH_MAX=[first_layer_print_max[0]],[first_layer_print_max[1]]
 ```
 
-**Optional — layer scheduler (`layers.cfg`):** if you want `total_layer` / `GCODE_AT_LAYER` to work from the first layer, add total layer count from the slicer (example for PrusaSlicer total layer variable name may vary by version):
+If your slicer has a reliable total-layer placeholder, pass it too:
 
 ```gcode
 PRINT_START BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature] \
@@ -323,89 +75,264 @@ PRINT_START BED=[first_layer_bed_temperature] EXTRUDER=[first_layer_temperature]
   LAYERS=[total_layer_count]
 ```
 
-If your slicer does not expose a total layer placeholder, omit `LAYERS=` and use height-based `GCODE_AT_LAYER HEIGHT=…` only.
+If your slicer does not expose total layers, leave `LAYERS=` out. Height-based scheduled commands still work.
 
-**Do not** duplicate full homing or long heating in the slicer if `PRINT_START` already does it — keep start G-code to one `PRINT_START` line plus any **machine-specific** lines (e.g. `SET_GCODE_OFFSET`, chamber fan) your printer needs **before** or **after** as documented by your hardware.
-
-### End G-code (Prusa-family)
-
-**Where:** Custom G-code → **End G-code**.
+End G-code:
 
 ```gcode
 PRINT_END
 ```
 
-### Before / after layer change (`layers.cfg`)
-
-**Where:** Print Settings → **Before layer change** / **After layer change** (Custom G-code).
+Before layer change:
 
 ```gcode
 BEFORE_LAYER_CHANGE HEIGHT={layer_z} LAYER={layer_num}
+```
+
+After layer change:
+
+```gcode
 AFTER_LAYER_CHANGE
 ```
 
-Requires **`[display_status]`** in `printer.cfg` so `SET_PRINT_STATS_INFO` works.
-
-### Pressure advance and velocity
-
-- **Slicer “Pressure advance” / Linear advance:** if you set PA in the slicer, it will emit `SET_PRESSURE_ADVANCE` (or firmware-dependent G-code). Our **`M900`** and **`variable_pressure_advance_scale`** apply when you use **M900** from G-code; set `variable_pressure_advance_scale` to `0` in `globals.cfg` if you want the slicer alone to control PA and avoid double scaling.
-- **Marlin-style limits:** slicers that emit **M201** / **M203** / **M205** are supported via **`velocity.cfg`** (after `lock_accel.cfg`, limits still respect **`LOCK_ACCEL`** on ACCEL).
-
-### Pause / filament from slicer
-
-- **`M600`:** not defined in this collection by default — map **Filament change** in the slicer to **`PAUSE`** (or add your own `[gcode_macro M600]` that calls `PAUSE`).
-- **`PAUSE_AFTER_D`:** start from a macro or console, not usually from per-print slicer start G-code.
-
-### OrcaSlicer / SuperSlicer
-
-Same placeholder style as PrusaSlicer for **`[first_layer_bed_temperature]`**, **`[first_layer_temperature]`**, **`[first_layer_print_min]`** / **`[first_layer_print_max]`** (verify exact names under **Dependencies** in your version). Layer change: **`{layer_z}`**, **`{layer_num}`** as in Prusa.
+Layer hooks need `[display_status]` in `printer.cfg`, because the macros use `SET_PRINT_STATS_INFO`.
 
 ### Cura
 
-Cura does not use Prusa bracket placeholders.
-
-- **Start G-code** (machine or extruder start): call **`PRINT_START`** with numeric or Cura **replacement patterns**, for example:
+Cura placeholders are different. A simple start example:
 
 ```gcode
 PRINT_START BED={material_bed_temperature_layer_0} EXTRUDER={material_print_temperature_layer_0} MESH_MIN=30,30 MESH_MAX=200,200
 ```
 
-Adjust **MESH_MIN** / **MESH_MAX** to match your bed printable area (or omit both if you want purge without mesh bounds — see `print_start.cfg`).
+Set `MESH_MIN` / `MESH_MAX` to match your printable bed area, or omit them if you want `PRINT_START` to skip adaptive mesh bounds.
 
-- **End G-code:** `PRINT_END`
-- **Before/after layer:** Extensions → **Post-processing** or **At height** scripts, or use Cura’s “Insert at layer” plugins — there is no single built-in hook like Prusa’s; you must inject `BEFORE_LAYER_CHANGE` / `AFTER_LAYER_CHANGE` at the right layers if you rely on **`layers.cfg`**.
+End G-code:
 
-### Bambu Studio / other hosts
+```gcode
+PRINT_END
+```
 
-Bambu and some hosts use different variable names and may send **internal** start sequences. Minimum integration: ensure the final start sequence ends with heating/homing/purge equivalent to **`PRINT_START`**, or call **`PRINT_START`** once with manually chosen **BED**, **EXTRUDER**, **MESH_***, if the host allows custom G-code insertion.
+Cura does not have the same simple before/after layer hooks as Prusa-family slicers. If you rely on `layers.cfg`, use Cura post-processing / insert-at-layer tooling to inject `BEFORE_LAYER_CHANGE` and `AFTER_LAYER_CHANGE`.
 
-### SD vs USB printing
+### Pressure Advance, Velocity, and Filament Change
 
-**`print_checkpoint.cfg`** and **`RECOVER_PRINT_CHECKPOINT`** assume **`[virtual_sdcard]`** (typical Moonraker setup). Pure USB serial printing from the slicer may not populate `virtual_sdcard` — checkpoint and recover are intended for **host-based SD** workflows.
+If your slicer emits `M201`, `M203`, or `M205`, `velocity.cfg` maps those to Klipper `SET_VELOCITY_LIMIT`. Acceleration changes still pass through `lock_accel.cfg`.
 
----
+`M900 K=...` maps to `SET_PRESSURE_ADVANCE` when `variable_pressure_advance_scale` in `globals.cfg` is greater than zero. Set it to `0` if you want to ignore slicer `M900` and manage pressure advance elsewhere.
 
-## Highlights
+This collection does not define `M600` by default. For slicer filament-change G-code, use `PAUSE`, or add your own `M600` macro that calls `PAUSE` and any filament workflow you want.
 
-- Global tuning via `_macro_globals` in `globals.cfg`
-- Pause/park/restore coordinated with `PAUSE` / `RESUME` in `state_guard.cfg`
-- Filament load/unload and distance-based pause (`PAUSE_AFTER_D`)
-- Layer-change automation (`layers.cfg`)
-- Optional SD checkpoint + recover path (`print_checkpoint.cfg`)
-- Marlin-style limits / PA via `velocity.cfg` (`M201`, `M203`, `M205`, `M900`)
-- `RESPOND` messages for operator feedback
+## Common Commands
 
----
+`PRINT_START` is the normal entry point from the slicer. It expects at least `BED` and `EXTRUDER`; `MESH_MIN` and `MESH_MAX` are recommended when the slicer can provide the first-layer area.
 
-## Formatting (development)
+```gcode
+PRINT_START BED=60 EXTRUDER=200 MESH_MIN=30,30 MESH_MAX=200,200
+```
 
-- **Translations:** [Readme.uk.md](Readme.uk.md) (Ukrainian — installation, slicer setup, module overview).
-- **Editor:** open the repo folder in Cursor/VS Code — workspace settings trim trailing whitespace, insert a final newline, and use LF on save (see `.vscode/settings.json`). `.editorconfig` aligns other editors (install the EditorConfig extension if needed).
-- **CLI (whole tree):** from repo root run `python scripts/format_all.py` to normalize `.cfg`, `.md`, `.mdc`, `.ini`, `.json`, `.yml`/`.yaml` under the tree (skips `.git`, etc.).
-- **Contributors / agents:** follow `.cursor/rules/format-before-save.mdc` when changing tracked text files.
+`PRINT_END` has no parameters:
 
----
+```gcode
+PRINT_END
+```
+
+Filament helpers:
+
+```gcode
+LOAD_FILAMENT
+UNLOAD_FILAMENT
+M701 L=80
+M702 U=80
+```
+
+Pause after a certain amount of filament has been used:
+
+```gcode
+PAUSE_AFTER_D D=15
+PAUSE_AFTER_D D=50 AFTER=UNLOAD
+PAUSE_AFTER_D D=30 AFTER=REMIND
+```
+
+Layer scheduling:
+
+```gcode
+GCODE_AT_LAYER LAYER=25 COMMAND="M117 layer 25"
+PAUSE_NEXT_LAYER
+SPEED_AT_LAYER LAYER=10 SPEED=80
+FLOW_AT_LAYER LAYER=20 FLOW=95
+```
+
+PID tune all configured heaters:
+
+```gcode
+PID_ALL
+SAVE_CONFIG
+```
+
+Acceleration and fan locks:
+
+```gcode
+LOCK_ACCEL ACCEL=3000
+UNLOCK_ACCEL
+
+LOCK_FAN SPEED=0.5
+UNLOCK_FAN
+```
+
+Marlin-style velocity / pressure advance compatibility:
+
+```gcode
+M201 X3000 Y3000
+M203 X150 Y150
+M205 X5 Y5
+M900 K0.04
+RESET_VELOCITY_LIMITS
+```
+
+Optional diagnostics:
+
+```gcode
+TEST_SPEED SPEED=300 ACCEL=2500 ITERATIONS=4
+AUTOTUNE_SGTHRS_PHASE STEPPER=stepper_x ACCEL=3000 FEED=240
+```
+
+## Print Checkpoints and Recovery
+
+`optional/print_checkpoint.cfg` is included from `globals.cfg`. It is meant for Moonraker / Mainsail-style `[virtual_sdcard]` printing, not raw USB streaming from a slicer.
+
+Required config:
+
+```ini
+[save_variables]
+filename: ~/printer_data/config/print_checkpoint_vars.cfg
+```
+
+Start periodic bookmarking:
+
+```gcode
+ENABLE_PRINT_CHECKPOINT
+```
+
+Optional interval override:
+
+```gcode
+ENABLE_PRINT_CHECKPOINT INTERVAL=10
+```
+
+Read the last saved checkpoint:
+
+```gcode
+READ_PRINT_CHECKPOINT
+```
+
+Stop bookmarking:
+
+```gcode
+DISABLE_PRINT_CHECKPOINT
+```
+
+Recovery is intentionally conservative. `RECOVER_PRINT_CHECKPOINT` can load the saved file and byte offset through virtual SD (`AUTO_SD=1`), home XY, place the toolhead in the same logical state as a paused print, heat, and start with `M24`.
+
+```gcode
+RECOVER_PRINT_CHECKPOINT
+```
+
+Useful recovery parameters:
+
+- `AUTO_SD=1`: default; load file with `M23`, seek with `M26`, and start with `M24`.
+- `AUTO_SD=0`: prepare the position, then use `RESUME` only if the job is already paused.
+- `FILENAME=` and `FILE_POS=`: override saved values.
+- `BED=` / `EXTRUDER=` or `EXT=`: override heat targets.
+- `LIFT=`: override the pause lift used when setting logical Z.
+- `SYNC_E=0`: skip `G92 E...`.
+- `SKIP_HEAT=1`: do not wait on heaters.
+- `SKIP_RESUME=1`: stop before `M24` / `RESUME`.
+
+Be careful: a wrong Z position, wrong byte offset, or moved part can crash the nozzle into the print. Stock Klipper `M23` may also fail on files in subfolders; use `FILENAME=` or a host-side script wrapper if needed.
+
+## Kinematics Reference
+
+This section is deliberately explicit. Any future macro change that changes toolhead motion should update it. See `.cursor/rules/gcode-kinematics-doc.mdc`.
+
+Conventions: `G90` means absolute coordinates, `G91` means relative coordinates, and `E` means extruder-only movement. When a macro delegates to a Klipper built-in such as `BED_MESH_CALIBRATE`, `Z_TILT_ADJUST`, or `PID_CALIBRATE`, the exact path comes from your printer config and Klipper itself.
+
+### `globals.cfg`
+
+No motion. It only includes files and stores variables.
+
+### `print_start.cfg`
+
+`PRINT_START` sets `G90` and `M83`, then performs a full `G28`. If mesh bounds are provided, it either runs the eddy path (`G1 Z10 F900`, move to mesh center at `F6000`, `PROBE_EDDY_NG_TAP`, `EDDYNG_BED_MESH_EXPERIMENTAL`) or calls `BED_MESH_CALIBRATE` with the configured mesh arguments.
+
+The purge section resets E with `G92 E0`, moves to `Z2` at `F900`, travels to the purge start at `F6000`, lowers to the purge height at `F300`, primes with `G1 E... F300`, then draws alternating purge lines with X/Y/E movement at the configured purge feedrate. It ends with `G92 E0`.
+
+`INIT_LAYER_GCODE`, when called through `LAYERS=`, does not move the toolhead.
+
+### `print_end.cfg`
+
+If XYZ is homed, `PRINT_END` switches to `G91`, retracts `E` at `F1800`, lifts Z at `F900`, switches back to `G90`, then parks at configured X/Y with `F6000`.
+
+If axes are not homed, it skips retract, lift, and park and only restores `G90`. Cooldown, mesh clear, fan off, flow/speed reset, layer reset, checkpoint disable, and eddy tap reset do not move XYZ or E.
+
+### `state_guard.cfg`
+
+The `PRINT_START` and `PRINT_END` wrappers only update state and forward to the real macros.
+
+`PAUSE` saves the current position. After stock pause and `M400`, if XYZ is homed and pause lift is positive, it runs `G91`, lifts Z by `variable_pause_lift_z` at `variable_pause_lift_feedrate`, returns to `G90`, then moves to configured park X/Y at `variable_pause_park_feedrate`.
+
+`RESUME` returns from the pause park if `_PAUSE_PARK_STATE.pending` is set: `G90`, move to saved X/Y, then move to saved Z. It then clears `pending` and calls the renamed stock resume.
+
+`CANCEL_PRINT`, `GLOBAL_STATE`, `_SET_GLOBAL_STATE`, `STATE_REQUIRE`, and `_PAUSE_PARK_STATE` introspection do not add motion.
+
+### `filament.cfg`
+
+`LOAD_FILAMENT` and `UNLOAD_FILAMENT` delegate to `_FILAMENT_LOAD_UNLOAD`. That helper uses `M83` and moves only E. Load pushes `LENGTH`, then `priming_length`. Unload does a small forward move, a dwell, shaping oscillations, and a longer retract.
+
+`M701` and `M702` first run `_FILAMENT_PAUSE_FOR_CHANGE`. During a print that means `PAUSE`. While idle, if the printer is homed and idle lift is enabled, it does `G91`, a Z lift, and `G90`. Then it performs the load or unload E moves.
+
+`PAUSE_AFTER_D` only monitors filament usage. When it fires, it calls `PAUSE` and optionally `UNLOAD_FILAMENT` or reminder beeps.
+
+### `layers.cfg`
+
+Layer macros do not move by themselves. They update print stats and run scheduled command strings. If you schedule `PAUSE`, `M220`, or any `G1`, that scheduled command is responsible for motion.
+
+### `pid.cfg`
+
+`PID_ALL` does not issue `G0` or `G1`. It calls `PID_CALIBRATE` for the configured extruders and bed.
+
+### `lock_accel.cfg`, `lock_fan.cfg`, `velocity.cfg`
+
+These macros do not move the toolhead. They change limits, fan state, or pressure advance. `velocity.cfg` maps `M201`, `M203`, `M205`, and `M900` to Klipper limit / pressure advance commands.
+
+### `optional/print_checkpoint.cfg`
+
+Bookmarking macros only read status and save variables.
+
+`RECOVER_PRINT_CHECKPOINT` with `AUTO_SD=1` resets/selects/seeks virtual SD without stepper motion, then runs `G28 X Y`, `G90`, moves to pause park X/Y, waits with `M400`, and uses `SET_KINEMATIC_POSITION X=... Y=... Z=... SET_HOMED=XYZ` where logical Z is saved print Z plus pause lift. It then moves to saved print X/Y, moves down to saved Z, optionally runs `M82` and `G92 E...`, heats, and starts with `M24`.
+
+With `AUTO_SD=0`, it prepares the same logical paused state but leaves the final return to `RESUME`.
+
+### Optional leveling and diagnostics
+
+`optional/z_tilt_adjust.cfg` wraps the stock `Z_TILT_ADJUST`: save state, clear mesh if present, optional coarse pass with `horizontal_move_z`, final pass, restore state. Motion is the stock Klipper Z tilt probe path.
+
+`optional/quad_gantry_level.cfg` does the same for `QUAD_GANTRY_LEVEL`: optional coarse pass, final pass, restore state. Motion is the stock QGL path.
+
+`optional/test_speed.cfg` homes with `G28`, optionally runs QGL and `G28 Z`, switches to `G90`, moves near max XY, homes XY, moves to a near-corner reference, raises to `Z=bound+10`, applies velocity limits, runs repeated large and small `G0` box/diagonal patterns, restores limits, homes again, returns to a corner, and restores G-code state.
+
+`optional/autotune_sgthrs.cfg` saves state, runs `G28`, moves to `Z_SAFE`, then for each SG value runs a square and diagonal `G0` pattern around bed center, returns to the reference point, runs `G28 X Y`, checks drift, and restores state at the end.
+
+## Development Notes
+
+Before finishing edits to `.cfg`, `.md`, `.mdc`, `.ini`, JSON, or YAML files, run:
+
+```shell
+python scripts/format_all.py
+```
+
+The repo also contains `.editorconfig`, `.gitattributes`, and workspace settings for LF line endings, final newlines, and trimmed trailing whitespace.
 
 ## License
 
-MIT — use, modify, and share freely.
+MIT. Use it, change it, and adapt it to your printer.
