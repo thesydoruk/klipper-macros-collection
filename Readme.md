@@ -25,7 +25,7 @@ These macros are included automatically when you load `globals.cfg`:
 ### Optional Macros
 Files in `optional/` are not always pulled in by default. **`print_checkpoint.cfg`** is included from `globals.cfg`; the rest are included only if you add them to `printer.cfg`.
 
-- **`print_checkpoint.cfg`** — Periodic SD print bookmark (`ENABLE_PRINT_CHECKPOINT` / `DISABLE_PRINT_CHECKPOINT` / `READ_PRINT_CHECKPOINT`) using `[save_variables]`; not automatic resume after power loss (see header in file). Interval: `variable_checkpoint_interval` in `globals.cfg`.
+- **`print_checkpoint.cfg`** — Periodic SD bookmark (`ENABLE_PRINT_CHECKPOINT` / `DISABLE_PRINT_CHECKPOINT` / `READ_PRINT_CHECKPOINT`) using `[save_variables]`; interval `variable_checkpoint_interval`. **`RECOVER_PRINT_CHECKPOINT`**: after Moonraker starts the same job **paused** at `print_ckpt_file_position`, run this macro (e.g. from Mainsail): `G28 X Y`, park XY (`variable_pause_park_*`), `SET_KINEMATIC_POSITION` with `Z = saved Z + variable_pause_lift_z` (same head height as after `PAUSE`), fills `_PAUSE_PARK_STATE`, optional `G92 E`, heat (`BED` / `EXTRUDER` or globals), then `RESUME` unless `SKIP_RESUME=1` or `SKIP_HEAT=1`. Risky if physical Z does not match the model; see file header.
 - **`z_tilt_adjust.cfg`** — Provides the `Z_TILT_ADJUST` command for safe 2-pass alignment.
 - **`quad_gantry_level.cfg`** — Defines `QUAD_GANTRY_LEVEL` macro that handles lifting, retrying, and state restore.
 - **`test_speed.cfg`** — Adds `TEST_SPEED`, which runs high-speed motion diagnostics with delta detection.
